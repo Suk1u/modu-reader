@@ -61,8 +61,15 @@ final class TextKitEngine: UIViewController, RenderEngine {
     private var settings = ReaderSettings()
     private var totalCharacters: Int = 0
 
-    /// 当前章纯文本。
+    /// 当前章纯文本（含图片标记，用于定位图片）。
     private var currentChapterText: String = ""
+    /// 用于排版的文本（图片标记已替换为等长空白）。
+    ///
+    /// 必须与 `currentChapterText` **等长**：分页区间基于后者计算，
+    /// 若长度不同，字符偏移会全部错位。
+    private var currentDisplayText: String = ""
+
+    private var displayText: String { currentDisplayText }
     /// 当前章分页结果。
     private var currentPagination: PaginatedChapter?
     /// 当前页在章内的序号。
@@ -357,6 +364,11 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let text = try fileStore.readChapter(for: book.id, fileName: chapter.filePath)
         let profile = currentProfile() ?? defaultProfile()
 
+        // 图片标记替换为等长空白，供排版使用。
+        // 保持等长是硬性要求：分页区间基于这段文本计算，
+        // 长度不同会导致所有字符偏移错位。
+        let displayText = Self.displayText(from: text)
+
         // 缓存命中直接使用，避免重复分页（二次打开同一章应在 50ms 内）
         let pagination: PaginatedChapter
         if let cached = pageCache?.load(
@@ -367,7 +379,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
             pagination = cached
         } else {
             pagination = await paginateOffMain(
-                text: text,
+                text: displayText,
                 profile: profile,
                 textColor: settings.theme.text,
                 chapterIndex: index
@@ -377,9 +389,28 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
         currentChapterIndex = index
         currentChapterText = text
+        currentDisplayText = displayText
         currentPagination = pagination
         currentPageIndex = 0
         lastProfile = profile
+    }
+
+    /// 把图片标记替换为等长空白，供排版使用。
+    ///
+    /// 每个标记用等量的 U+2007（FIGURE SPACE）填充：
+    /// 它是固定宽度空格，在 CoreText 里宽度可预测，
+    /// 保证替换前后文本长度与排版行数一致。
+    private static func displayText(from text: String) -> String {
+        let references = EPUBParser.imageReferences(in: text)
+        guard !references.isEmpty else { return text }
+
+        let mutable = NSMutableString(string: text)
+        for reference in references.reversed() {
+            let length = reference.range.length
+            let blank = String(repeating: "\u{2007}", count: length)
+            mutable.replaceCharacters(in: reference.range, with: blank)
+        }
+        return mutable as String
     }
 
     /// 在后台队列分页，主线程只接收结果。
@@ -428,9 +459,31 @@ final class TextKitEngine: UIViewController, RenderEngine {
             pageView.configure(
                 chapterText: attributed,
                 range: targetSlice.range,
-                contentSize: contentSize
+                contentSize: contentSize,
+                images: pageImages(for: targetSlice)
             )
             pageView.isHidden = relative != 0
+        }
+    }
+
+    /// 计算某一页里出现的图片及其纵向位置。
+    ///
+    /// 图片标记在分页时已被替换为占位符，因此这里用「标记在章节中的字符偏移」
+    /// 除以「本页字符区间」得到相对位置。
+    private func pageImages(for slice: PageSlice) -> [TextPageView.PageImage] {
+        let references = EPUBParser.imageReferences(in: currentChapterText)
+        guard !references.isEmpty else { return [] }
+
+        let pageStart = slice.range.location
+        let pageEnd = slice.range.location + slice.range.length
+        let pageLength = max(1, slice.range.length)
+
+        return references.compactMap { reference in
+            guard reference.range.location >= pageStart,
+                  reference.range.location < pageEnd else { return nil }
+
+            let relative = CGFloat(reference.range.location - pageStart) / CGFloat(pageLength)
+            return TextPageView.PageImage(path: reference.source, progress: relative)
         }
     }
 
@@ -448,20 +501,26 @@ final class TextKitEngine: UIViewController, RenderEngine {
             pageView.configure(
                 chapterText: attributed,
                 range: slice.range,
-                contentSize: contentSize
+                contentSize: contentSize,
+                images: pageImages(for: slice)
             )
             pageView.isHidden = relative != 0
         }
     }
 
     /// 构造当前章的富文本。每次渲染时按需构造，不长期持有。
+    ///
+    /// 图片标记会被替换为等长空白：分页是基于这个「去掉标记」的文本算的，
+    /// 渲染必须用同一份文本，否则分页边界会与渲染错位。
     private func attributedText(for pagination: PaginatedChapter?) -> NSAttributedString? {
-        guard pagination != nil, !currentChapterText.isEmpty else {
+        guard pagination != nil else {
             return currentChapterText.isEmpty ? NSAttributedString(string: "") : nil
         }
+        guard !currentChapterText.isEmpty else { return nil }
+
         let profile = currentProfile() ?? defaultProfile()
         return NSAttributedString(
-            string: currentChapterText,
+            string: displayText,
             attributes: profile.attributes(textColor: settings.theme.text)
         )
     }
@@ -503,7 +562,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
         let offset = currentPageSlice?.range.location ?? 0
         let chapterIndex = currentChapterIndex
-        let text = currentChapterText
+        // 用排版文本分页，不能用含标记的原文（长度虽相同但字符不同）
+        let text = currentDisplayText
         let color = settings.theme.text
 
         Task { [weak self] in

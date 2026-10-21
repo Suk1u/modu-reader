@@ -61,21 +61,82 @@ final class TextPageView: UIView {
 
     // MARK: - Configuration
 
+    /// 图片视图缓存。键为图片绝对路径。
+    private var imageViews: [String: UIImageView] = [:]
+
     /// 配置本页内容。
     ///
     /// - Parameters:
     ///   - chapterText: 本章完整富文本。
     ///   - range: 本页在章节中的字符区间。
     ///   - contentSize: 正文区域尺寸。
+    ///   - images: 本页范围内出现的图片（路径 + 在本页中的位置比例）。
     func configure(
         chapterText: NSAttributedString,
         range: NSRange,
-        contentSize: CGSize
+        contentSize: CGSize,
+        images: [PageImage] = []
     ) {
         self.chapterText = chapterText
         self.pageRange = Self.clamp(range, to: chapterText.length)
         self.contentSize = contentSize
+        self.pageImages = images
+        rebuildImageViews()
         setNeedsDisplay()
+    }
+
+    /// 本页的图片列表。
+    private var pageImages: [PageImage] = []
+
+    /// 重建图片视图。
+    private func rebuildImageViews() {
+        // 移除不再需要的
+        let needed = Set(pageImages.map(\.path))
+        for (path, view) in imageViews where !needed.contains(path) {
+            view.removeFromSuperview()
+            imageViews.removeValue(forKey: path)
+        }
+
+        guard contentSize.width > 1 else { return }
+
+        for image in pageImages {
+            let view: UIImageView
+            if let existing = imageViews[image.path] {
+                view = existing
+            } else {
+                guard let uiImage = UIImage(contentsOfFile: image.path) else {
+                    Diagnostics.log("TextPageView: 无法加载图片 \(image.path)")
+                    continue
+                }
+                view = UIImageView(image: uiImage)
+                view.contentMode = .scaleAspectFit
+                view.clipsToBounds = true
+                view.layer.cornerRadius = 6
+                view.layer.cornerCurve = .continuous
+                addSubview(view)
+                imageViews[image.path] = view
+            }
+
+            // 按比例定位：image.progress 是本页内的纵向比例
+            let height = min(contentSize.height * 0.42, view.image.map { img in
+                contentSize.width * (img.size.height / max(1, img.size.width))
+            } ?? contentSize.height * 0.3)
+            let y = contentSize.height * image.progress
+            view.frame = CGRect(
+                x: 0,
+                y: max(0, min(contentSize.height - height, y)),
+                width: contentSize.width,
+                height: height
+            )
+        }
+    }
+
+    /// 本页中的一张图片。
+    struct PageImage: Hashable {
+        /// 图片绝对路径。
+        var path: String
+        /// 在本页中的纵向位置比例（0...1）。
+        var progress: CGFloat
     }
 
     /// 仅更新文字颜色（主题切换），不重新分页。
@@ -132,11 +193,16 @@ final class TextPageView: UIView {
 
     // MARK: - Reuse
 
-    /// 回收前清理内容，避免复用池持有大文本。
+    /// 回收前清理内容，避免复用池持有大文本与图片。
     func prepareForReuse() {
         pageRange = NSRange(location: 0, length: 0)
         chapterText = nil
         contentSize = .zero
+        pageImages = []
+        for (_, view) in imageViews {
+            view.removeFromSuperview()
+        }
+        imageViews.removeAll()
         setNeedsDisplay()
     }
 

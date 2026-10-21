@@ -365,3 +365,99 @@ private extension Data {
         ])
     }
 }
+
+// MARK: - 图片支持
+
+@Suite("EPUB 图片")
+struct EPUBImageTests {
+
+    @Test("img 标签转为图片标记")
+    func imgTagBecomesMarker() throws {
+        let xhtml = """
+        <html><body>
+        <p>文字段落。</p>
+        <img src="../Images/pic.jpg" alt="插图"/>
+        <p>后面的文字。</p>
+        </body></html>
+        """
+        let text = try EPUBParser.extractText(fromXHTML: Data(xhtml.utf8))
+
+        #expect(text.contains("文字段落。"))
+        #expect(text.contains("后面的文字。"))
+
+        let references = EPUBParser.imageReferences(in: text)
+        #expect(references.count == 1)
+        #expect(references[0].source == "../Images/pic.jpg")
+    }
+
+    @Test("多张图片都被提取")
+    func multipleImages() throws {
+        let xhtml = """
+        <html><body>
+        <img src="a.jpg"/>
+        <p>中间</p>
+        <img src="b.png"/>
+        <img src="c.jpeg"/>
+        </body></html>
+        """
+        let text = try EPUBParser.extractText(fromXHTML: Data(xhtml.utf8))
+        let references = EPUBParser.imageReferences(in: text)
+
+        #expect(references.count == 3)
+        #expect(references.map(\.source) == ["a.jpg", "b.png", "c.jpeg"])
+    }
+
+    @Test("图片路径解析为绝对路径")
+    func resolveImagePaths() {
+        let text = "段落\n\(EPUBParser.imageMarker(for: "../Images/pic.jpg"))\n结尾"
+        let root = URL(fileURLWithPath: "/tmp/book/extracted", isDirectory: true)
+
+        let resolved = EPUBParser.resolveImagePaths(
+            in: text,
+            chapterDirectory: "OEBPS/Text",
+            extractedRoot: root
+        )
+
+        let references = EPUBParser.imageReferences(in: resolved)
+        #expect(references.count == 1)
+        #expect(references[0].source.hasPrefix("/tmp/book/extracted"))
+        #expect(references[0].source.hasSuffix("Images/pic.jpg"))
+    }
+
+    @Test("移除图片标记后只剩正文")
+    func stripMarkers() {
+        let text = "前面\n\(EPUBParser.imageMarker(for: "a.jpg"))\n后面"
+        let stripped = EPUBParser.strippingImageMarkers(text)
+
+        #expect(!stripped.contains("IMG:"))
+        #expect(stripped.contains("前面"))
+        #expect(stripped.contains("后面"))
+    }
+
+    @Test("外链图片不被本地化")
+    func externalImageUntouched() {
+        let text = EPUBParser.imageMarker(for: "https://example.com/pic.jpg")
+        let root = URL(fileURLWithPath: "/tmp/book", isDirectory: true)
+
+        let resolved = EPUBParser.resolveImagePaths(
+            in: text,
+            chapterDirectory: "OEBPS",
+            extractedRoot: root
+        )
+
+        let references = EPUBParser.imageReferences(in: resolved)
+        #expect(references.first?.source == "https://example.com/pic.jpg")
+    }
+
+    @Test("退化解析路径也能提取 img")
+    func fallbackExtractsImages() throws {
+        // 未闭合标签，触发正则退化路径
+        let xhtml = "<html><body><p>文字<img src=\"pic.png\"><p>后续"
+        let text = try EPUBParser.extractText(fromXHTML: Data(xhtml.utf8))
+
+        let references = EPUBParser.imageReferences(in: text)
+        #expect(references.count == 1)
+        #expect(references[0].source == "pic.png")
+        #expect(text.contains("文字"))
+    }
+}

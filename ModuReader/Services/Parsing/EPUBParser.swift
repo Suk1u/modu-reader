@@ -84,7 +84,15 @@ struct EPUBParser: Sendable {
 
             let text: String
             do {
-                text = try Self.extractText(fromXHTML: Data(contentsOf: resourceURL))
+                var raw = try Self.extractText(fromXHTML: Data(contentsOf: resourceURL))
+                // 把图片相对路径改写为解压目录内的绝对路径，
+                // 这样渲染层无需知道 OPF 结构。
+                raw = Self.resolveImagePaths(
+                    in: raw,
+                    chapterDirectory: (resourcePath as NSString).deletingLastPathComponent,
+                    extractedRoot: extracted
+                )
+                text = raw
             } catch {
                 Diagnostics.log("EPUB: 解析 \(resourcePath) 失败 \(error.localizedDescription)")
                 continue
@@ -471,6 +479,25 @@ struct EPUBParser: Sendable {
                  "h1", "h2", "h3", "h4", "h5", "h6", "br", "tr":
                 flushParagraph()
                 blockDepth += 1
+            case "img":
+                // 图片用占位标记保留，渲染层据此插入图像。
+                //
+                // 为什么不用 NSTextAttachment：
+                // 分页器基于 CoreText 的 CTFramesetter 计算字符区间，
+                // attachment 会参与排版计算但不占据可预测的字符位置，
+                // 导致分页边界与渲染错位。用纯文本标记则完全可控。
+                if let src = attributeDict["src"], !src.isEmpty {
+                    flushParagraph()
+                    output.append(Self.imageMarker(for: src))
+                }
+            case "image":
+                // SVG 里的 <image xlink:href="...">
+                let href = attributeDict["xlink:href"]
+                    ?? attributeDict["href"]
+                if let href, !href.isEmpty {
+                    flushParagraph()
+                    output.append(Self.imageMarker(for: href))
+                }
             case "td", "th":
                 currentParagraph += " "
             default:
@@ -522,8 +549,138 @@ struct EPUBParser: Sendable {
         }
     }
 
+    // MARK: - 图片标记
+
+    /// 图片占位标记的前后缀。
+    ///
+    /// 形如 `\u{FFFC}IMG:../Images/pic.jpg\u{FFFC}`。
+    /// 用 U+FFFC（OBJECT REPLACEMENT CHARACTER）而非方括号：
+    /// 它在文本里几乎不可能自然出现，且宽度可预测，便于分页时定位。
+    static let imageMarkerPrefix = "\u{FFFC}IMG:"
+    static let imageMarkerSuffix = "\u{FFFC}"
+
+    /// 构造图片标记。
+    static func imageMarker(for source: String) -> String {
+        "\(imageMarkerPrefix)\(source)\(imageMarkerSuffix)"
+    }
+
+    /// 从文本中解析出图片标记的位置与路径。
+    ///
+    /// - Parameter text: 章节纯文本。
+    /// - Returns: 每处标记的字符区间与图片相对路径。
+    static func imageReferences(in text: String) -> [(range: NSRange, source: String)] {
+        let ns = text as NSString
+        var results: [(range: NSRange, source: String)] = []
+        var searchStart = 0
+
+        while searchStart < ns.length {
+            let searchRange = NSRange(location: searchStart, length: ns.length - searchStart)
+            let prefixRange = ns.range(of: imageMarkerPrefix, options: [], range: searchRange)
+            guard prefixRange.location != NSNotFound else { break }
+
+            let pathStart = prefixRange.location + prefixRange.length
+            let remaining = NSRange(location: pathStart, length: ns.length - pathStart)
+            let suffixRange = ns.range(of: imageMarkerSuffix, options: [], range: remaining)
+            guard suffixRange.location != NSNotFound else { break }
+
+            let pathLength = suffixRange.location - pathStart
+            guard pathLength > 0 else {
+                searchStart = suffixRange.location + suffixRange.length
+                continue
+            }
+
+            let source = ns.substring(with: NSRange(location: pathStart, length: pathLength))
+            let fullRange = NSRange(
+                location: prefixRange.location,
+                length: suffixRange.location + suffixRange.length - prefixRange.location
+            )
+            results.append((range: fullRange, source: source))
+            searchStart = fullRange.location + fullRange.length
+        }
+
+        return results
+    }
+
+    /// 把章节文本里的图片相对路径改写为解压目录内的绝对路径。
+    ///
+    /// - Parameters:
+    ///   - text: 含 `[[IMG:相对路径]]` 标记的章节文本。
+    ///   - chapterDirectory: 章节文件所在目录（相对解压根）。
+    ///   - extractedRoot: 解压根目录的绝对路径。
+    static func resolveImagePaths(
+        in text: String,
+        chapterDirectory: String,
+        extractedRoot: URL
+    ) -> String {
+        let references = imageReferences(in: text)
+        guard !references.isEmpty else { return text }
+
+        let ns = text as NSString
+        let mutable = NSMutableString(string: text)
+
+        // 从后往前替换，避免 range 偏移
+        for reference in references.reversed() {
+            let source = reference.source
+            // 跳过已经是绝对路径的（http:// 等外链不处理）
+            guard !source.hasPrefix("http://"), !source.hasPrefix("https://") else {
+                continue
+            }
+
+            let decoded = source.removingPercentEncoding ?? source
+            let relative = chapterDirectory.isEmpty
+                ? decoded
+                : "\(chapterDirectory)/\(decoded)"
+            let absolute = extractedRoot
+                .appendingPathComponent(relative)
+                .standardizedFileURL
+                .path
+
+            // 归一化 ../ 与 ./
+            let normalized = (absolute as NSString).standardizingPath
+            let replacement = imageMarker(for: normalized)
+            mutable.replaceCharacters(in: reference.range, with: replacement)
+        }
+
+        _ = ns
+        return mutable as String
+    }
+
+    /// 从章节文本中移除图片标记，只留正文。
+    ///
+    /// 用于分页：图片不参与文字排版，单独占位。
+    static func strippingImageMarkers(_ text: String) -> String {
+        var result = text
+        while let start = result.range(of: imageMarkerPrefix),
+              let end = result.range(of: imageMarkerSuffix, range: start.upperBound..<result.endIndex) {
+            result.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        return result
+    }
+
     private static func fallbackStripHTML(_ html: String) -> String {
         var text = html
+
+        // 先把 <img src="..."> 换成图片标记，避免被下面的标签清理一并删掉
+        if let imgRegex = try? NSRegularExpression(
+            pattern: "<img[^>]*src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>",
+            options: [.caseInsensitive]
+        ) {
+            let ns = text as NSString
+            let matches = imgRegex.matches(
+                in: text,
+                range: NSRange(location: 0, length: ns.length)
+            )
+            // 从后往前替换，避免 range 偏移
+            for match in matches.reversed() {
+                guard match.numberOfRanges >= 2 else { continue }
+                let src = ns.substring(with: match.range(at: 1))
+                text = (text as NSString).replacingCharacters(
+                    in: match.range,
+                    with: imageMarker(for: src)
+                )
+            }
+        }
+
         // 去掉 script / style 整块
         for tag in ["script", "style", "head"] {
             let pattern = "<\(tag)[^>]*>[\\s\\S]*?</\(tag)>"

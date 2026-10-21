@@ -54,6 +54,7 @@ struct ModuReaderApp: App {
 /// 根视图。承载 Tab 导航。
 struct RootView: View {
     @Environment(AppContainer.self) private var appContainer
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var appContainer = appContainer
@@ -69,5 +70,15 @@ struct RootView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .tint(ReaderTheme.paper.accentColor)
+        // 回到前台时重新扫描 Inbox。
+        //
+        // 共享面板打开文件时，App 可能已在后台运行：
+        // 系统把文件放进 Documents/Inbox 后直接把 App 唤到前台，
+        // 此过程不触发任何 URL 回调 —— 只能靠主动扫描。
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            Diagnostics.log("RootView: scenePhase -> active")
+            appContainer.scanInbox()
+        }
     }
 }

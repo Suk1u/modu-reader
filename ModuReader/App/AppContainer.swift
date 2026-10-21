@@ -71,6 +71,27 @@ final class AppContainer {
         // 冷启动时 SwiftUI 的视图层级尚未建立，通知会丢失。
         // AppContainer 在 App.init 里创建，是最早的可靠订阅点。
         startObservingOpenDocuments()
+        scanInbox()
+    }
+
+    /// 扫描 Documents/Inbox。
+    ///
+    /// 这是「共享面板打开文件」在 iOS 26+ 上唯一可靠的入口：
+    /// 系统把文件复制到 Inbox，而不是通过 URL 回调交付。
+    func scanInbox() {
+        let files = InboxScanner.scan()
+        guard !files.isEmpty else { return }
+
+        Diagnostics.log("AppContainer: Inbox 发现 \(files.count) 个文件")
+        for file in files {
+            do {
+                let staged = try InboxScanner.take(file)
+                Diagnostics.log("AppContainer: Inbox 移出 \(file.originalName)")
+                enqueue(OpenDocumentPayload(url: staged, originalName: file.originalName))
+            } catch {
+                Diagnostics.log("AppContainer: Inbox 处理失败 \(error.localizedDescription)")
+            }
+        }
     }
 
     /// 订阅文件打开通知。
