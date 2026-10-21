@@ -488,7 +488,7 @@ struct EPUBParser: Sendable {
                 // 导致分页边界与渲染错位。用纯文本标记则完全可控。
                 if let src = attributeDict["src"], !src.isEmpty {
                     flushParagraph()
-                    output.append(Self.imageMarker(for: src))
+                    output.append(EPUBParser.imageMarker(for: src))
                 }
             case "image":
                 // SVG 里的 <image xlink:href="...">
@@ -496,7 +496,7 @@ struct EPUBParser: Sendable {
                     ?? attributeDict["href"]
                 if let href, !href.isEmpty {
                     flushParagraph()
-                    output.append(Self.imageMarker(for: href))
+                    output.append(EPUBParser.imageMarker(for: href))
                 }
             case "td", "th":
                 currentParagraph += " "
