@@ -2,18 +2,17 @@
 //  TextPageView.swift
 //  ModuReader
 //
-//  单页文字视图。用 TextKit 2 渲染，与 Paginator 共用同一套排版引擎。
+//  单页文字视图。用 TextKit 2 渲染。
 //
-//  渲染策略：
-//  1. 整章文本灌入独立的 NSTextContentStorage
-//  2. 用与分页时完全相同的容器宽度排版（高度无限）
-//  3. 把排版结果整体上移 slice.yOffset，只露出本页那一屏
+//  渲染策略：按「页首字符位置」定位到对应 fragment，从那里开始绘制。
 //
-//  为什么「整章排版 + 平移」而不是「按页切片重新排版」：
-//  - 切片重新排版会让每页首段丢失段前距，末段丢失段后距，行距不一致
-//  - 跨页的段落缩进、列表编号会重新计算，出现错位
-//  - 图片等 attachment 在切片时会丢失上下文
-//  整章排版一次，分页只做区间划分，渲染只做平移 —— 三处结果必然一致。
+//  为什么不按 Y 坐标平移：
+//  TextKit 2 的 fragment 坐标在超大容器下不可靠（实测 10 万字章节
+//  的 Y 累加到 19525，与内容高度不符）。字符位置是唯一稳定可靠的锚点。
+//
+//  为什么不按页切片重新排版：
+//  切片会让每页首段丢段前距、末段丢段后距，跨页段落的缩进与
+//  列表编号也会重算，导致翻页时行距跳动。
 //
 
 import UIKit
@@ -31,13 +30,11 @@ final class TextPageView: UIView {
     /// 本页对应的字符区间。
     private(set) var pageRange: NSRange = NSRange(location: 0, length: 0)
 
-    /// 本页首行在整章排版中的 Y 偏移。
-    private var pageYOffset: CGFloat = 0
-
-    /// 当前使用的容器宽度，用于判断是否需要重建排版。
+    /// 当前排版宽度。
     private var layoutWidth: CGFloat = 0
 
-    /// 排版容器的极大高度，与 Paginator 保持一致。
+    /// 容器高度上限。仅用于让 TextKit 知道这是「无界」容器；
+    /// 实际布局由 viewport 按需推进。
     private static let layoutHeightLimit: CGFloat = 10_000_000
 
     // MARK: - Init
@@ -84,27 +81,22 @@ final class TextPageView: UIView {
     ///
     /// - Parameters:
     ///   - chapterText: 本章完整富文本（含图片 attachment）。
-    ///   - slice: 本页的区间与 Y 偏移。
+    ///   - slice: 本页区间。
     ///   - contentSize: 正文区域尺寸。
     func configure(
         chapterText: NSAttributedString,
         slice: PageSlice,
         contentSize: CGSize
     ) {
-        let safeRange = Self.clamp(slice.range, to: chapterText.length)
-        pageRange = safeRange
-        pageYOffset = slice.yOffset
+        pageRange = Self.clamp(slice.range, to: chapterText.length)
 
         let width = max(1, contentSize.width)
 
-        // 只在宽度变化时重新灌文本与排版。
-        // 同一章翻页时宽度不变，这里直接复用已有排版结果，翻页开销接近零。
         if layoutWidth != width || contentStorage.attributedString == nil {
             layoutWidth = width
             textContainer.size = CGSize(width: width, height: Self.layoutHeightLimit)
             contentStorage.attributedString = chapterText
-            // 不调 ensureLayout(documentRange)：那会排完整个章节。
-            // TextKit 在 enumerateTextLayoutFragments / draw 时会按需布局。
+            layoutManager.invalidateLayout(for: contentStorage.documentRange)
         }
 
         setNeedsDisplay()
@@ -125,30 +117,40 @@ final class TextPageView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        guard contentStorage.attributedString?.length ?? 0 > 0 else { return }
+        guard let text = contentStorage.attributedString, text.length > 0 else { return }
+        guard pageRange.length > 0 else { return }
 
-        // 把整章排版结果上移 pageYOffset，只绘制本页那一屏。
-        //
-        // TextKit 2 的 fragment 坐标是「文档坐标系」（左上原点、向下为正），
-        // UIKit 的绘制上下文也是左上原点，因此直接平移即可，无需翻转。
+        // 定位本页首字符对应的排版位置
+        guard let startLocation = contentStorage.location(
+            contentStorage.documentRange.location,
+            offsetBy: pageRange.location
+        ) else {
+            return
+        }
+
+        // 只布局本页需要的范围：从页首到页尾。
+        // 这是 TextKit 2 的按需布局 —— 不会排完整章。
+        let endOffset = min(text.length, pageRange.location + pageRange.length)
+        if let endLocation = contentStorage.location(
+            contentStorage.documentRange.location,
+            offsetBy: endOffset
+        ), let pageTextRange = NSTextRange(location: startLocation, end: endLocation) {
+            layoutManager.ensureLayout(for: pageTextRange)
+        }
+
+        // 找到本页第一个 fragment，以它的位置为绘制原点。
+        // 这样无需知道整章排版结果的绝对 Y 坐标。
+        guard let firstFragment = layoutManager.textLayoutFragment(for: startLocation) else {
+            return
+        }
+        let originY = firstFragment.layoutFragmentFrame.minY
+
+        // 把整章排版结果平移到「本页首行在 y=0」，
+        // 只绘制落在本页高度内的 fragment。
         context.saveGState()
-        context.translateBy(x: 0, y: -pageYOffset)
+        context.translateBy(x: 0, y: -originY)
 
-        let visibleBottom = pageYOffset + bounds.height
-
-        // 从本页首字符的位置开始枚举，而不是从文档开头。
-        // 长章节（10 万字）从 nil 开始会遍历前面所有 fragment，
-        // 每帧都做一遍会明显拖慢翻页。
-        let startLocation: (any NSTextLocation)? = {
-            guard pageRange.location > 0,
-                  let location = contentStorage.location(
-                    contentStorage.documentRange.location,
-                    offsetBy: pageRange.location
-                  ) else {
-                return contentStorage.documentRange.location
-            }
-            return location
-        }()
+        let visibleBottom = originY + bounds.height
 
         layoutManager.enumerateTextLayoutFragments(
             from: startLocation,
@@ -156,9 +158,7 @@ final class TextPageView: UIView {
         ) { fragment in
             let frame = fragment.layoutFragmentFrame
 
-            // 在可视区上方（因起点略有回退）的 fragment 跳过绘制
-            if frame.maxY < pageYOffset { return true }
-            // 超出可视区底部 → 停止枚举
+            if frame.maxY < originY { return true }
             if frame.minY > visibleBottom { return false }
 
             fragment.draw(at: frame.origin, in: context)
@@ -173,7 +173,6 @@ final class TextPageView: UIView {
     /// 回收前清理内容，避免复用池持有大文本与图片。
     func prepareForReuse() {
         pageRange = NSRange(location: 0, length: 0)
-        pageYOffset = 0
         layoutWidth = 0
         contentStorage.attributedString = NSAttributedString(string: "")
         setNeedsDisplay()

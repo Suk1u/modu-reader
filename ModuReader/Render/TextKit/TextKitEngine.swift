@@ -370,8 +370,16 @@ final class TextKitEngine: UIViewController, RenderEngine {
         ) {
             pagination = cached
         } else {
+            // 分页用纯文本：图片标记替换为等长换行占位。
+            //
+            // 为什么不在分页时插入 NSTextAttachment：
+            // CTFramesetter 需要 attachment.image 才能算高度，
+            // 而后台队列构造 UIImage 有线程风险，且大图会拖慢分页。
+            // 分页阶段按「图片占一行」预留空间，渲染阶段用真实 attachment，
+            // 两者字符数一致，行数偏差仅在一行以内，可接受。
+            let paginationText = Self.paginationText(from: text)
             pagination = await paginateOffMain(
-                text: text,
+                text: paginationText,
                 profile: profile,
                 textColor: settings.theme.text,
                 chapterIndex: index
@@ -384,6 +392,27 @@ final class TextKitEngine: UIViewController, RenderEngine {
         currentPagination = pagination
         currentPageIndex = 0
         lastProfile = profile
+    }
+
+    /// 构造用于分页的文本。
+    ///
+    /// 图片标记替换为等长换行占位：保持字符数不变，
+    /// 同时让图片在排版上占据独立行（而不是挤在一行文字中间）。
+    private static func paginationText(from text: String) -> String {
+        let references = EPUBParser.imageReferences(in: text)
+        guard !references.isEmpty else { return text }
+
+        let mutable = NSMutableString(string: text)
+        for reference in references.reversed() {
+            let length = reference.range.length
+            // 首字符用换行，其余用零宽空格，总长度不变
+            var blank = "\n"
+            if length > 1 {
+                blank += String(repeating: "\u{200B}", count: length - 1)
+            }
+            mutable.replaceCharacters(in: reference.range, with: blank)
+        }
+        return mutable as String
     }
 
     /// 在后台队列分页，主线程只接收结果。
