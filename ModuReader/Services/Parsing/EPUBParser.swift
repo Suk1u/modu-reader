@@ -296,7 +296,7 @@ struct EPUBParser: Sendable {
                     package.isFixedLayout = true
                 }
                 if attributeDict["property"] == "rendition:layout" {
-                    package.pendingLayoutValue = true
+                    pendingLayoutValue = true
                 }
 
             case "spine":
