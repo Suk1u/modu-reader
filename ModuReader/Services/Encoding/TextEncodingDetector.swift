@@ -73,40 +73,26 @@ enum TextEncodingDetector {
             return utf16
         }
 
-        // 4. 中文优先
-        let chineseCandidates: [(String.Encoding, String)] = [
-            (encoding(from: .GB_18030_2000), "GB18030"),
-            (encoding(from: .big5), "Big5"),
-            (encoding(from: .GB_2312_80), "GBK"),
-        ]
-        for (encoding, name) in chineseCandidates {
-            if let result = evaluate(data: data, encoding: encoding, displayName: name) {
-                return result
-            }
+        // 4. CJK 候选互斥评分
+        //
+        // GB18030 几乎能解码任意字节流（它把大量字节序列映射到汉字），
+        // 因此「能解码」不能作为判据，否则 Big5 / Shift-JIS 文本会被误判成 GB18030。
+        // 这里对所有候选打分，取「目标文字占比最高」的那个。
+        if let best = bestCJKCandidate(data: data) {
+            return best
         }
 
-        // 5. 日文
-        let japaneseCandidates: [(String.Encoding, String)] = [
-            (encoding(from: .shiftJIS), "Shift-JIS"),
-            (encoding(from: .EUC_JP), "EUC-JP"),
-        ]
-        for (encoding, name) in japaneseCandidates {
-            if let result = evaluateJapanese(data: data, encoding: encoding, displayName: name) {
-                return result
-            }
-        }
-
-        // 6. 韩文
+        // 5. 韩文
         if let result = evaluateKorean(data: data, encoding: encoding(from: .EUC_KR), displayName: "EUC-KR") {
             return result
         }
 
-        // 7. 西文
+        // 6. 西文
         if let result = evaluateWestern(data: data, encoding: .windowsCP1252, displayName: "Windows-1252") {
             return result
         }
 
-        // 8. 兜底
+        // 7. 兜底
         let fallback = String(decoding: data, as: UTF8.self)
         return EncodingDetectionResult(
             encoding: .utf8,
@@ -229,76 +215,114 @@ enum TextEncodingDetector {
         )
     }
 
-    // MARK: - 评估
+    // MARK: - CJK 互斥评分
 
-    private static func evaluate(
-        data: Data,
-        encoding: String.Encoding,
-        displayName: String
-    ) -> EncodingDetectionResult? {
-        guard let text = String(data: data, encoding: encoding) else { return nil }
-        guard !text.contains("\u{FFFD}") else { return nil }
+    /// 候选编码及其目标文字类型。
+    private struct CJKCandidate {
+        var encoding: String.Encoding
+        var displayName: String
+        /// 该编码对应的目标文字。
+        var script: Script
+    }
 
-        let sample = String(text.prefix(4096))
-        guard !sample.isEmpty else { return nil }
+    private enum Script {
+        case han
+        case kana
+    }
 
-        let total = Double(sample.count)
-        guard total > 0 else { return nil }
+    /// 对所有 CJK 候选打分，返回目标文字占比最高的一个。
+    ///
+    /// 为什么要打分而不是「按顺序取第一个能解码的」：
+    /// GB18030 的字节空间几乎覆盖所有双字节序列，任何 Big5 / Shift-JIS 文本
+    /// 都能被它「成功解码」成一堆生僻汉字。只有比较「解出来的东西有多像目标语言」，
+    /// 才能区分真正的编码。
+    private static func bestCJKCandidate(data: Data) -> EncodingDetectionResult? {
+        let candidates: [CJKCandidate] = [
+            CJKCandidate(encoding: encoding(from: .GB_18030_2000), displayName: "GB18030", script: .han),
+            CJKCandidate(encoding: encoding(from: .GB_2312_80), displayName: "GBK", script: .han),
+            CJKCandidate(encoding: encoding(from: .big5), displayName: "Big5", script: .han),
+            CJKCandidate(encoding: encoding(from: .shiftJIS), displayName: "Shift-JIS", script: .kana),
+            CJKCandidate(encoding: encoding(from: .EUC_JP), displayName: "EUC-JP", script: .kana),
+        ]
 
-        var chinese = 0
-        var control = 0
-        for scalar in sample.unicodeScalars {
-            let value = scalar.value
-            // CJK 统一表意文字 + 扩展 A
-            if (0x4E00...0x9FFF).contains(value) || (0x3400...0x4DBF).contains(value) {
-                chinese += 1
+        var best: (candidate: CJKCandidate, text: String, score: Double)?
+
+        for candidate in candidates {
+            guard let text = String(data: data, encoding: candidate.encoding) else { continue }
+            guard !text.contains("\u{FFFD}") else { continue }
+
+            let sample = String(text.prefix(4096))
+            guard !sample.isEmpty else { continue }
+
+            let metrics = measure(sample)
+            guard metrics.controlRatio < controlCharacterRatioLimit else { continue }
+
+            let score: Double
+            switch candidate.script {
+            case .han:
+                score = metrics.hanRatio
+            case .kana:
+                score = metrics.kanaRatio
             }
-            // 除常见空白外的 C0/C1 控制字符
-            if value < 0x20 && value != 0x09 && value != 0x0A && value != 0x0D {
-                control += 1
+
+            // 目标文字占比过低，说明这个编码解出来的不是该语言
+            let threshold = candidate.script == .kana ? 0.05 : chineseCharacterRatioThreshold
+            guard score > threshold else { continue }
+
+            // 日文编码额外要求：假名占比必须高于汉字占比，
+            // 否则一篇中文被 Shift-JIS 解出少量假名时会误判。
+            if candidate.script == .kana {
+                guard metrics.kanaRatio > metrics.hanRatio else { continue }
             }
-            if (0x7F...0x9F).contains(value) {
-                control += 1
+
+            if best == nil || score > best!.score {
+                best = (candidate, text, score)
             }
         }
 
-        let chineseRatio = Double(chinese) / total
-        let controlRatio = Double(control) / total
-
-        guard controlRatio < controlCharacterRatioLimit else { return nil }
-        guard chineseRatio > chineseCharacterRatioThreshold else { return nil }
+        guard let best else { return nil }
 
         return EncodingDetectionResult(
-            encoding: encoding,
-            displayName: displayName,
-            text: text,
+            encoding: best.candidate.encoding,
+            displayName: best.candidate.displayName,
+            text: best.text,
             hasReplacementCharacters: false,
             isFallback: false
         )
     }
 
-    private static func evaluateJapanese(
-        data: Data,
-        encoding: String.Encoding,
-        displayName: String
-    ) -> EncodingDetectionResult? {
-        guard let text = String(data: data, encoding: encoding) else { return nil }
-        guard !text.contains("\u{FFFD}") else { return nil }
+    /// 文本统计指标。
+    private struct TextMetrics {
+        var hanRatio: Double
+        var kanaRatio: Double
+        var hangulRatio: Double
+        var controlRatio: Double
+    }
 
-        let sample = String(text.prefix(4096))
-        guard !sample.isEmpty else { return nil }
-
-        let total = Double(sample.count)
-        guard total > 0 else { return nil }
-
-        var japanese = 0
+    private static func measure(_ sample: String) -> TextMetrics {
+        var han = 0
+        var kana = 0
+        var hangul = 0
         var control = 0
+
         for scalar in sample.unicodeScalars {
             let value = scalar.value
+
+            // CJK 统一表意文字 + 扩展 A + 兼容表意文字
+            if (0x4E00...0x9FFF).contains(value)
+                || (0x3400...0x4DBF).contains(value)
+                || (0xF900...0xFAFF).contains(value) {
+                han += 1
+            }
             // 平假名 + 片假名 + 半角片假名
             if (0x3040...0x30FF).contains(value) || (0xFF66...0xFF9D).contains(value) {
-                japanese += 1
+                kana += 1
             }
+            // 谚文音节 + 字母
+            if (0xAC00...0xD7AF).contains(value) || (0x1100...0x11FF).contains(value) {
+                hangul += 1
+            }
+            // 除常见空白外的控制字符
             if value < 0x20 && value != 0x09 && value != 0x0A && value != 0x0D {
                 control += 1
             }
@@ -307,21 +331,20 @@ enum TextEncodingDetector {
             }
         }
 
-        let japaneseRatio = Double(japanese) / total
-        let controlRatio = Double(control) / total
+        let total = Double(sample.count)
+        guard total > 0 else {
+            return TextMetrics(hanRatio: 0, kanaRatio: 0, hangulRatio: 0, controlRatio: 1)
+        }
 
-        guard controlRatio < controlCharacterRatioLimit else { return nil }
-        guard japaneseRatio > 0.05 else { return nil }
-
-        return EncodingDetectionResult(
-            encoding: encoding,
-            displayName: displayName,
-            text: text,
-            hasReplacementCharacters: false,
-            isFallback: false
+        return TextMetrics(
+            hanRatio: Double(han) / total,
+            kanaRatio: Double(kana) / total,
+            hangulRatio: Double(hangul) / total,
+            controlRatio: Double(control) / total
         )
     }
 
+    /// 韩文探测。
     private static func evaluateKorean(
         data: Data,
         encoding: String.Encoding,
@@ -333,30 +356,9 @@ enum TextEncodingDetector {
         let sample = String(text.prefix(4096))
         guard !sample.isEmpty else { return nil }
 
-        let total = Double(sample.count)
-        guard total > 0 else { return nil }
-
-        var korean = 0
-        var control = 0
-        for scalar in sample.unicodeScalars {
-            let value = scalar.value
-            // 谚文音节 + 字母
-            if (0xAC00...0xD7AF).contains(value) || (0x1100...0x11FF).contains(value) {
-                korean += 1
-            }
-            if value < 0x20 && value != 0x09 && value != 0x0A && value != 0x0D {
-                control += 1
-            }
-            if (0x7F...0x9F).contains(value) {
-                control += 1
-            }
-        }
-
-        let koreanRatio = Double(korean) / total
-        let controlRatio = Double(control) / total
-
-        guard controlRatio < controlCharacterRatioLimit else { return nil }
-        guard koreanRatio > 0.05 else { return nil }
+        let metrics = measure(sample)
+        guard metrics.controlRatio < controlCharacterRatioLimit else { return nil }
+        guard metrics.hangulRatio > 0.05 else { return nil }
 
         return EncodingDetectionResult(
             encoding: encoding,
@@ -379,18 +381,8 @@ enum TextEncodingDetector {
         let sample = String(text.prefix(4096))
         guard !sample.isEmpty else { return nil }
 
-        let total = Double(sample.count)
-        guard total > 0 else { return nil }
-
-        var control = 0
-        for scalar in sample.unicodeScalars {
-            let value = scalar.value
-            if value < 0x20 && value != 0x09 && value != 0x0A && value != 0x0D {
-                control += 1
-            }
-        }
-
-        guard Double(control) / total < controlCharacterRatioLimit else { return nil }
+        let metrics = measure(sample)
+        guard metrics.controlRatio < controlCharacterRatioLimit else { return nil }
 
         return EncodingDetectionResult(
             encoding: encoding,

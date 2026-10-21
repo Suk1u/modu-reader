@@ -2,57 +2,61 @@
 //  TextPageView.swift
 //  ModuReader
 //
-//  单页文字渲染视图。每个实例持有独立的 TextKit 2 栈，只渲染自己的字符区间。
+//  单页文字渲染视图。
+//
+//  渲染策略：用 CoreText 直接绘制「章节全文 + 本页可见区间」。
+//  这与 Paginator 使用同一套 CoreText 断行引擎，因此分页边界与渲染完全一致。
+//
+//  为什么不用 TextKit 2 渲染：
+//  - 分页已经用 CTFramesetter 算好，渲染若换用 TextKit 2 会引入第二套断行规则，
+//    可能出现「分页说这行在这页，渲染却把它挤到下一页」的错位。
+//  - 单页 CoreText 绘制足够快（一页通常 20~30 行），且内存占用极低。
+//  - 后续做选词/标注时，可以再引入 TextKit 2 的交互层，不影响分页。
 //
 
 import UIKit
+import CoreText
 
 /// 单页文字视图。
-///
-/// 设计要点：
-/// - 只持有本页的 `NSAttributedString` 子串，不共享整章（内存可控）。
-/// - 用 `NSTextViewportLayoutController` 驱动布局，`draw(_:)` 中逐 fragment 绘制。
-/// - 不使用 `UITextView`：其封装过深，无法精确控制分页与 fragment 生命周期。
 @MainActor
 final class TextPageView: UIView {
-
-    // MARK: - TextKit stack
-
-    private let contentStorage = NSTextContentStorage()
-    private let layoutManager = NSTextLayoutManager()
-    private let textContainer = NSTextContainer(size: .zero)
-    private var viewportController: NSTextViewportLayoutController?
 
     /// 本页对应的字符区间（章节内绝对偏移）。
     private(set) var pageRange: NSRange = NSRange(location: 0, length: 0)
 
-    // MARK: - Init
+    /// 本页要绘制的富文本（整章）。
+    private var chapterText: NSAttributedString?
+    /// 页面内边距已由调用方扣除，这里绘制区域就是 bounds。
+    private var contentSize: CGSize = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setup()
+        configureLayer()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setup()
+        configureLayer()
     }
 
-    private func setup() {
+    private func configureLayer() {
         backgroundColor = .clear
         isOpaque = false
         contentMode = .redraw
+    }
 
-        // 禁用自动调整，由外部显式设置尺寸
-        textContainer.widthTracksTextView = false
-        textContainer.heightTracksTextView = false
-        textContainer.lineFragmentPadding = 0
-        layoutManager.textContainer = textContainer
-        contentStorage.addTextLayoutManager(layoutManager)
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // 不用 UIScreen.main：iPad 分屏 / 台前调度下它不可靠
+        layer.contentsScale = traitCollection.displayScale
+    }
 
-        let controller = NSTextViewportLayoutController(textLayoutManager: layoutManager)
-        controller.delegate = self
-        viewportController = controller
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.displayScale != previousTraitCollection?.displayScale {
+            layer.contentsScale = traitCollection.displayScale
+            setNeedsDisplay()
+        }
     }
 
     // MARK: - Configuration
@@ -60,7 +64,7 @@ final class TextPageView: UIView {
     /// 配置本页内容。
     ///
     /// - Parameters:
-    ///   - attributedText: 本章完整富文本（内部只取 `range` 部分）。
+    ///   - chapterText: 本章完整富文本。
     ///   - range: 本页在章节中的字符区间。
     ///   - contentSize: 正文区域尺寸。
     func configure(
@@ -68,64 +72,62 @@ final class TextPageView: UIView {
         range: NSRange,
         contentSize: CGSize
     ) {
-        let safeRange = Self.clamp(range, to: chapterText.length)
-        pageRange = safeRange
-
-        let pageText: NSAttributedString
-        if safeRange.length > 0 {
-            pageText = chapterText.attributedSubstring(from: safeRange)
-        } else {
-            pageText = NSAttributedString(string: "")
-        }
-
-        textContainer.size = contentSize
-        contentStorage.attributedString = pageText
-
-        // 分页后重新布局
-        layoutManager.invalidateLayout(for: contentStorage.documentRange)
-        layoutManager.ensureLayout(for: contentStorage.documentRange)
-        viewportController?.layoutViewport()
+        self.chapterText = chapterText
+        self.pageRange = Self.clamp(range, to: chapterText.length)
+        self.contentSize = contentSize
         setNeedsDisplay()
     }
 
     /// 仅更新文字颜色（主题切换），不重新分页。
     func updateTextColor(_ color: UIColor) {
-        guard let current = contentStorage.attributedString, current.length > 0 else { return }
-        let range = NSRange(location: 0, length: current.length)
-        let mutable = NSMutableAttributedString(attributedString: current)
-        mutable.addAttribute(.foregroundColor, value: color, range: range)
-        contentStorage.attributedString = mutable
+        guard let chapterText else { return }
+        let mutable = NSMutableAttributedString(attributedString: chapterText)
+        let full = NSRange(location: 0, length: mutable.length)
+        mutable.addAttribute(.foregroundColor, value: color, range: full)
+        self.chapterText = mutable
         setNeedsDisplay()
-    }
-
-    // MARK: - Layout
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        viewportController?.layoutViewport()
     }
 
     // MARK: - Drawing
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        guard let text = contentStorage.attributedString, text.length > 0 else { return }
+        guard let chapterText, pageRange.length > 0 else { return }
+        guard contentSize.width > 1, contentSize.height > 1 else { return }
 
-        viewportController?.layoutViewport()
+        // 分页时用的矩形与这里必须完全一致
+        let pageRect = CGRect(origin: .zero, size: contentSize)
 
-        layoutManager.enumerateTextLayoutFragments(
-            from: nil,
-            options: [.ensuresLayout]
-        ) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            // 跳过完全在可视区外的 fragment
-            guard frame.intersects(bounds) else { return true }
+        // 只对「从本页起点到章节结尾」建 framesetter，
+        // 这样第一页就是本页内容，无需再做偏移裁剪。
+        let start = pageRange.location
+        let remainingLength = chapterText.length - start
+        guard remainingLength > 0 else { return }
 
-            context.saveGState()
-            fragment.draw(at: frame.origin, in: context)
-            context.restoreGState()
-            return true
-        }
+        let remaining = chapterText.attributedSubstring(
+            from: NSRange(location: start, length: remainingLength)
+        )
+
+        let framesetter = CTFramesetterCreateWithAttributedString(
+            remaining as CFAttributedString
+        )
+        let path = CGPath(rect: pageRect, transform: nil)
+        let frame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: 0),
+            path,
+            nil
+        )
+
+        // CoreText 使用左下原点，UIKit 上下文是左上原点
+        context.saveGState()
+        context.textMatrix = .identity
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+
+        CTFrameDraw(frame, context)
+
+        context.restoreGState()
     }
 
     // MARK: - Reuse
@@ -133,7 +135,8 @@ final class TextPageView: UIView {
     /// 回收前清理内容，避免复用池持有大文本。
     func prepareForReuse() {
         pageRange = NSRange(location: 0, length: 0)
-        contentStorage.attributedString = NSAttributedString(string: "")
+        chapterText = nil
+        contentSize = .zero
         setNeedsDisplay()
     }
 
@@ -145,33 +148,5 @@ final class TextPageView: UIView {
         let maxLength = length - location
         let clampedLength = max(0, min(range.length, maxLength))
         return NSRange(location: location, length: clampedLength)
-    }
-}
-
-// MARK: - NSTextViewportLayoutControllerDelegate
-
-/// `NSTextViewportLayoutControllerDelegate` 不是 `@MainActor` 协议，
-/// 而 `TextPageView` 是。用 `nonisolated` 实现并在内部回到主线程，
-/// 避免 Swift 6 的跨 actor 隔离报错。
-extension TextPageView: NSTextViewportLayoutControllerDelegate {
-
-    nonisolated func viewportBounds(
-        for textViewportLayoutController: NSTextViewportLayoutController
-    ) -> CGRect {
-        // viewportBounds 会在布局阶段被同步调用，必须立即返回。
-        // MainActor.assumeIsolated 在这里是安全的：TextKit 的布局驱动来自
-        // 主线程的 layoutViewport() 调用（见 configure / layoutSubviews / draw）。
-        MainActor.assumeIsolated {
-            self.bounds
-        }
-    }
-
-    nonisolated func textViewportLayoutController(
-        _ textViewportLayoutController: NSTextViewportLayoutController,
-        configureRenderingSurfaceFor textLayoutFragment: NSTextLayoutFragment
-    ) {
-        // 本视图在 draw(_:) 中直接绘制 fragment，不维护额外的渲染表面。
-        // 这里刻意不做任何事：在此调用 setNeedsDisplay() 会形成
-        // layoutViewport → configure → setNeedsDisplay → draw → layoutViewport 的重绘循环。
     }
 }
