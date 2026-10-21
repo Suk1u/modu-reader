@@ -13,7 +13,7 @@
 //
 
 import Foundation
-import Compression
+import zlib
 
 /// ZIP 条目。
 struct ZipEntry: Hashable, Sendable {
@@ -332,44 +332,58 @@ final class ZipArchive {
 
     /// 解压 ZIP 的 deflate 数据。
     ///
-    /// ZIP 存储的是 **raw deflate**（无 zlib 头），而
-    /// `compression_decode_buffer` 只接受 **zlib 格式**（含 2 字节头 + 4 字节校验）。
-    /// 因此需要手动加一个 zlib 头再解压。
+    /// ZIP 存储的是 **raw deflate**（RFC 1951，无 zlib 头也无 Adler-32 校验）。
     ///
-    /// zlib 头格式（RFC 1950）：
-    ///   CMF = 0x78（deflate, 32K window）
-    ///   FLG = 0x01 / 0x9C / 0xDA（取决于压缩等级，这里用 0x9C 表示默认）
-    /// 两者组合需满足 (CMF * 256 + FLG) % 31 == 0。
-    /// 0x78 0x9C → 30876 % 31 == 0 ✓
+    /// 不能用 Apple 的 `compression_decode_buffer(..., COMPRESSION_ZLIB)`：
+    /// 该 API 只接受完整的 **zlib 流**（RFC 1950，含 2 字节头 + 4 字节 Adler-32）。
+    /// 手动补 zlib 头会在两种情况下失败：
+    /// - 不补 Adler-32 → "incomplete or truncated stream"
+    /// - 补零值 Adler-32 → "incorrect data check"
+    /// 而要算出正确 Adler-32 就必须先解压，形成循环依赖。
+    ///
+    /// 正确做法：直接调用系统 libz 的 `inflateInit2`，把 windowBits 设为 **-15**
+    /// 表示 raw deflate 模式。libz 是 iOS 系统库，无需任何依赖。
     private static func inflate(_ data: Data, expectedSize: Int) -> Data? {
         guard expectedSize > 0 else { return Data() }
 
-        var zlibData = Data([0x78, 0x9C])
-        zlibData.append(data)
-        // 追加 Adler-32 占位（部分实现要求完整流，末尾 4 字节）
-        zlibData.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
+        var stream = z_stream()
+        // windowBits = -15 → raw deflate（不加 zlib 头、不做 Adler 校验）
+        var status = zlib.inflateInit2_(&stream, -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard status == Z_OK else {
+            Diagnostics.log("ZipArchive: inflateInit2 失败 status=\(status)")
+            return nil
+        }
+        defer { zlib.inflateEnd(&stream) }
 
         var output = Data(count: expectedSize)
-        let written: Int = output.withUnsafeMutableBytes { outputBuffer in
-            guard let outputPointer = outputBuffer.bindMemory(to: UInt8.self).baseAddress else {
-                return 0
+
+        let result: Int? = data.withUnsafeBytes { inputBuffer -> Int? in
+            guard let inputPointer = inputBuffer.bindMemory(to: Bytef.self).baseAddress else {
+                return nil
             }
-            return zlibData.withUnsafeBytes { inputBuffer -> Int in
-                guard let inputPointer = inputBuffer.bindMemory(to: UInt8.self).baseAddress else {
-                    return 0
+            return output.withUnsafeMutableBytes { outputBuffer -> Int? in
+                guard let outputPointer = outputBuffer.bindMemory(to: Bytef.self).baseAddress else {
+                    return nil
                 }
-                return compression_decode_buffer(
-                    outputPointer,
-                    expectedSize,
-                    inputPointer,
-                    zlibData.count,
-                    nil,
-                    COMPRESSION_ZLIB
-                )
+
+                stream.next_in = UnsafeMutablePointer(mutating: inputPointer)
+                stream.avail_in = uInt(data.count)
+                stream.next_out = outputPointer
+                stream.avail_out = uInt(expectedSize)
+
+                status = zlib.inflate(&stream, Z_FINISH)
+
+                // Z_STREAM_END 表示完整解压；Z_OK 表示输出缓冲刚好填满但流可能未结束，
+                // 这两种都接受（部分写入器不写终止标记）。
+                guard status == Z_STREAM_END || status == Z_OK else {
+                    Diagnostics.log("ZipArchive: inflate 失败 status=\(status) written=\(stream.total_out)")
+                    return nil
+                }
+                return Int(stream.total_out)
             }
         }
 
-        guard written > 0 else { return nil }
+        guard let written = result, written > 0 else { return nil }
         return output.prefix(written)
     }
 
