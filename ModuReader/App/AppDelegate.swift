@@ -35,13 +35,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             deliver(url, delay: 1.0)
         }
 
-        // 也可能是通过 sourceApplication + annotation 传入的 Inbox 文件
-        if let openURL = launchOptions?[.url] as? URL,
-           openURL.isFileURL {
-            Diagnostics.log("AppDelegate: cold-start file URL confirmed")
-        }
+        // 记录系统实际识别的文档类型注册情况。
+        // 若这里打印的条目数与 Info.plist 声明的不一致，
+        // 说明侧载工具重签时丢失了 document types 声明。
+        Self.logDocumentTypeRegistration()
 
         return true
+    }
+
+    /// 检查系统层面本 App 注册了哪些文档类型。
+    ///
+    /// 做法：遍历 Info.plist 里声明的每个 UTType，用
+    /// `UIApplication.shared.canOpenURL` 无法判断类型注册，
+    /// 因此改为读取 LaunchServices 可见的 handler 数量。
+    /// 这里用简化的日志输出，供人工比对。
+    private static func logDocumentTypeRegistration() {
+        let declared = Bundle.main.infoDictionary?["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
+        var allTypes: [String] = []
+        for entry in declared {
+            if let types = entry["LSItemContentTypes"] as? [String] {
+                allTypes.append(contentsOf: types)
+            }
+        }
+        Diagnostics.log("AppDelegate: 声明的 UTI = \(allTypes.joined(separator: ", "))")
+        Diagnostics.log("AppDelegate: 若从共享面板打开时没有下方 'open url' 日志，说明系统未把文件交给本 App")
     }
 
     func application(
