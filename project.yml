@@ -1,0 +1,93 @@
+name: ModuReader
+options:
+  bundleIdPrefix: com.modu
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      ONLY_ACTIVE_ARCH: YES
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+
+targets:
+  ModuReader:
+    type: application
+    platform: iOS
+    sources:
+      - path: ModuReader
+        excludes:
+          - "Resources/Info.plist"
+    info:
+      path: ModuReader/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: 墨读
+        CFBundleName: ModuReader
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        CFBundleDevelopmentRegion: zh_CN
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        UISupportsDocumentBrowser: false
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.modu.reader
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ModuReader/Resources/Info.plist
+
+  ModuReaderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ModuReaderTests
+    dependencies:
+      - target: ModuReader
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.modu.reader.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ModuReader:
+    build:
+      targets:
+        ModuReader: all
+        ModuReaderTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - ModuReaderTests
