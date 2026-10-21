@@ -302,6 +302,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
                         fileName: chapter.filePath
                     ) else { continue }
 
+                    // NSString 不是 Sendable。在闭包内用局部变量承载，
+                    // 不跨队列传递，满足严格并发检查。
                     let ns = text as NSString
                     var searchStart = 0
                     var hitsInChapter = 0
@@ -318,7 +320,15 @@ final class TextKitEngine: UIViewController, RenderEngine {
                         )
                         guard found.location != NSNotFound else { break }
 
-                        let context = Self.makeContext(text: ns, around: found)
+                        let start = max(0, found.location - 24)
+                        let end = min(ns.length, found.location + found.length + 24)
+                        let rawContext = ns.substring(
+                            with: NSRange(location: start, length: end - start)
+                        )
+                        let context = rawContext
+                            .replacingOccurrences(of: "\n", with: " ")
+                            .trimmingCharacters(in: .whitespaces)
+
                         results.append(
                             SearchResult(
                                 chapterIndex: chapter.id,
@@ -337,17 +347,6 @@ final class TextKitEngine: UIViewController, RenderEngine {
                 continuation.resume(returning: results)
             }
         }
-    }
-
-    /// 截取匹配位置前后的上下文。
-    private static func makeContext(text: NSString, around range: NSRange, radius: Int = 24) -> String {
-        let start = max(0, range.location - radius)
-        let end = min(text.length, range.location + range.length + radius)
-        let raw = text.substring(with: NSRange(location: start, length: end - start))
-        // 折叠换行，避免列表行高跳动
-        return raw
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - Chapter loading
