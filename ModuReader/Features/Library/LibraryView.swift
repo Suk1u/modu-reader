@@ -78,19 +78,30 @@ struct LibraryView: View {
             .fullScreenCover(item: $openedBook) { book in
                 ReaderView(book: book.descriptor)
             }
-            // 系统通过 URL scheme 打开时的入口（Files 里点文件、分享面板）
+            // 兜底入口：某些路径下 SwiftUI 仍会收到 onOpenURL。
+            // 与 AppDelegate 的通知可能重复触发，用集合去重。
             .onOpenURL { url in
+                Diagnostics.log("LibraryView: onOpenURL \(url.lastPathComponent)")
+                guard url.isFileURL else { return }
+                let originalName = url.lastPathComponent
+                let staged = try? StageFile.copyToStaging(url)
+                guard let staged else { return }
                 Task {
-                    await importFromOpenURL(url)
+                    await importStagedDocument(
+                        OpenDocumentPayload(url: staged, originalName: originalName)
+                    )
                 }
             }
             // 处理由 AppDelegate 转发的文件（见 ModuReaderApp）
             .onReceive(
                 NotificationCenter.default.publisher(for: .moduOpenDocument)
             ) { notification in
-                guard let url = notification.object as? URL else { return }
+                guard let payload = notification.object as? OpenDocumentPayload else {
+                    Diagnostics.log("LibraryView: 收到通知但 payload 类型不符")
+                    return
+                }
                 Task {
-                    await importFromOpenURL(url)
+                    await importStagedDocument(payload)
                 }
             }
             .overlay(alignment: .top) {
@@ -284,19 +295,11 @@ struct LibraryView: View {
         }
     }
 
-    /// 处理系统通过 openURL 传入的文件。
+    /// 处理由 AppDelegate 暂存好的文档。
     ///
-    /// 同样先同步暂存：openURL 给的 URL 可能是 Inbox 临时副本，
-    /// 系统会在回调返回后清理。
-    private func importFromOpenURL(_ url: URL) async {
-        let originalName = url.lastPathComponent
-        let staged: URL
-        do {
-            staged = try StageFile.copyToStaging(url)
-        } catch {
-            importError = "\(originalName)：\(error.localizedDescription)"
-            return
-        }
+    /// AppDelegate 已在回调内同步复制到暂存区，这里直接导入即可。
+    private func importStagedDocument(_ payload: OpenDocumentPayload) async {
+        Diagnostics.log("LibraryView: importStagedDocument \(payload.originalName)")
 
         importingCount = 1
         defer { importingCount = 0 }
@@ -304,14 +307,16 @@ struct LibraryView: View {
         let service = appContainer.makeImportService(context: modelContext)
         do {
             let result = try await service.importFile(
-                at: staged,
-                originalFileName: originalName
+                at: payload.url,
+                originalFileName: payload.originalName
             )
+            Diagnostics.log("LibraryView: imported \(result.title)")
             importSuccessMessage = "已添加《\(result.title)》。"
         } catch {
-            importError = "\(originalName)：\(error.localizedDescription)"
+            Diagnostics.log("LibraryView: import failed \(error.localizedDescription)")
+            importError = "\(payload.originalName)：\(error.localizedDescription)"
         }
-        StageFile.discard(staged)
+        StageFile.discard(payload.url)
     }
 
     /// 导入暂存文件。

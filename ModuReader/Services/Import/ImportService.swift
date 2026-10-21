@@ -121,27 +121,58 @@ final class ImportService {
             throw ImportError.copyFailed(error.localizedDescription)
         }
 
-        // 5. 解析（在后台执行，避免大文件阻塞主线程）
+        // 5. 按格式分派解析（在后台执行，避免大文件阻塞主线程）
+        do {
+            switch format {
+            case .epub:
+                return try await importEPUB(
+                    source: destination,
+                    bookID: bookID,
+                    originalFileName: originalFileName
+                )
+            default:
+                return try await importPlainText(
+                    source: destination,
+                    bookID: bookID,
+                    ext: ext,
+                    originalFileName: originalFileName,
+                    forcedEncoding: forcedEncoding
+                )
+            }
+        } catch {
+            try? fileStore.deleteBook(bookID)
+            throw error
+        }
+    }
+
+    // MARK: - Plain text
+
+    private func importPlainText(
+        source: URL,
+        bookID: UUID,
+        ext: String,
+        originalFileName: String?,
+        forcedEncoding: String.Encoding?
+    ) async throws -> ImportResult {
         let parser = TextPublicationParser(fileStore: fileStore)
         let title = TextPublicationParser.deriveTitle(
-            from: originalFileName ?? url.lastPathComponent
+            from: originalFileName ?? source.lastPathComponent
         )
+
         let parsed: ParsedTextPublication
         do {
             parsed = try await Task.detached(priority: .userInitiated) {
                 try await parser.parse(
-                    url: destination,
+                    url: source,
                     bookID: bookID,
                     displayTitle: title,
                     forcedEncoding: forcedEncoding
                 )
             }.value
         } catch {
-            try? fileStore.deleteBook(bookID)
             throw ImportError.parseFailed(error.localizedDescription)
         }
 
-        // 6. 写入数据库
         let entity = BookEntity(
             id: bookID,
             title: parsed.metadata.title,
@@ -154,14 +185,7 @@ final class ImportService {
             lastOpenedAt: Date(),
             detectedEncoding: parsed.detectedEncodingName
         )
-        modelContext.insert(entity)
-
-        do {
-            try modelContext.save()
-        } catch {
-            try? fileStore.deleteBook(bookID)
-            throw ImportError.parseFailed("保存书籍信息失败：\(error.localizedDescription)")
-        }
+        try persist(entity)
 
         return ImportResult(
             bookID: bookID,
@@ -169,6 +193,64 @@ final class ImportService {
             chapterCount: parsed.chapters.count,
             detectedEncoding: parsed.detectedEncodingName
         )
+    }
+
+    // MARK: - EPUB
+
+    private func importEPUB(
+        source: URL,
+        bookID: UUID,
+        originalFileName: String?
+    ) async throws -> ImportResult {
+        let parser = EPUBParser(fileStore: fileStore)
+
+        let parsed: ParsedEPUB
+        do {
+            parsed = try await Task.detached(priority: .userInitiated) {
+                try await parser.parse(url: source, bookID: bookID)
+            }.value
+        } catch {
+            throw ImportError.parseFailed(error.localizedDescription)
+        }
+
+        // 书名：优先用 EPUB 内嵌元数据，缺失时回退文件名
+        let fallbackTitle = TextPublicationParser.deriveTitle(
+            from: originalFileName ?? source.lastPathComponent
+        )
+        let title = parsed.metadata.title.isEmpty ? fallbackTitle : parsed.metadata.title
+
+        let entity = BookEntity(
+            id: bookID,
+            title: title,
+            author: parsed.metadata.author,
+            kind: parsed.isFixedLayout ? .epubFixedLayout : .epubReflowable,
+            formatExtension: "epub",
+            relativePath: bookID.uuidString,
+            totalCharacters: parsed.totalCharacters,
+            chapterCount: parsed.chapters.count,
+            lastOpenedAt: Date(),
+            detectedEncoding: "EPUB"
+        )
+        try persist(entity)
+
+        return ImportResult(
+            bookID: bookID,
+            title: title,
+            chapterCount: parsed.chapters.count,
+            detectedEncoding: "EPUB"
+        )
+    }
+
+    // MARK: - Persistence
+
+    private func persist(_ entity: BookEntity) throws {
+        modelContext.insert(entity)
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.delete(entity)
+            throw ImportError.parseFailed("保存书籍信息失败：\(error.localizedDescription)")
+        }
     }
 
     /// 删除一本书（数据库 + 文件）。

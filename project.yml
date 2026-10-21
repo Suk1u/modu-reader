@@ -43,8 +43,15 @@ targets:
         CFBundleDevelopmentRegion: zh_CN
         UILaunchScreen:
           UIColorName: LaunchBackground
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+        # 刻意不声明 UIApplicationSceneManifest。
+        #
+        # 原因：一旦声明，iOS 走 scene 生命周期，
+        # `application(_:open:options:)` 不再被调用；而 SwiftUI 的 onOpenURL
+        # 在「从其他 App 分享文件过来」这条路径上也不保证触发，
+        # 导致共享面板打开文件完全无响应。
+        #
+        # 不声明时，系统走传统生命周期，AppDelegate 的 URL 回调必然触发。
+        # SwiftUI 的 @main App 在没有 scene manifest 时仍会正常创建窗口。
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

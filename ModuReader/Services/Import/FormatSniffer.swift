@@ -20,10 +20,12 @@ enum DetectedFormat: String, Sendable {
     case imageFolder
     case unknown
 
-    /// 是否为本期（M1）支持的格式。
+    /// 是否为当前版本支持的格式。
+    ///
+    /// M2 新增 EPUB。漫画（zip/rar/sevenZip）与 PDF 仍待后续里程碑。
     var isSupportedInCurrentMilestone: Bool {
         switch self {
-        case .plainText, .markdown:
+        case .plainText, .markdown, .epub:
             true
         default:
             false
@@ -45,8 +47,15 @@ enum FormatSniffer {
         // 魔数优先
         if let header {
             if header.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
-                // ZIP 系：需进一步区分 EPUB / 普通 ZIP
-                return ext == "epub" ? .epub : .zip
+                // ZIP 系：EPUB 也是 ZIP，需要看内部结构区分。
+                // 扩展名是 .epub 时直接信任；否则检查是否有 META-INF/container.xml。
+                if ext == "epub" {
+                    return .epub
+                }
+                if isEPUBArchive(url: url) {
+                    return .epub
+                }
+                return ext == "cbz" ? .zip : .zip
             }
             if header.starts(with: [0x25, 0x50, 0x44, 0x46]) { // %PDF
                 return .pdf
@@ -110,6 +119,20 @@ enum FormatSniffer {
         }
 
         return types
+    }
+
+    // MARK: - EPUB detection
+
+    /// 通过 ZIP 中央目录判断是否为 EPUB。
+    ///
+    /// 判据：存在 `META-INF/container.xml`。
+    /// 只看中央目录（几 KB），不解压任何内容，开销极小。
+    private static func isEPUBArchive(url: URL) -> Bool {
+        guard let archive = try? ZipArchive(url: url),
+              let entries = try? archive.entries() else {
+            return false
+        }
+        return entries.contains { $0.path == "META-INF/container.xml" }
     }
 
     // MARK: - Helpers
