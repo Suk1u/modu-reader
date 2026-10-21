@@ -201,63 +201,93 @@ enum Paginator {
         var slices: [PageSlice] = []
         var pageIndex = 0
 
-        var currentStart: Int?
-        var currentEnd = 0
-        var currentTop: CGFloat = 0
-        var currentBottom: CGFloat = 0
-
-        func flush() {
-            guard let start = currentStart, currentEnd > start else { return }
-            slices.append(
-                PageSlice(
-                    range: NSRange(location: start, length: currentEnd - start),
-                    pageIndex: pageIndex,
-                    yOffset: currentTop
-                )
-            )
-            pageIndex += 1
-            currentStart = nil
-        }
+        /// 当前页在源文本中的起始偏移。
+        ///
+        /// 关键：始终用「上一页结束位置」作为下一页起点，
+        /// 而不是下一行首字符的位置。
+        /// TextKit 2 的 `NSTextLineFragment.characterRange` 不含行尾换行符，
+        /// 直接用行起点会让换行符落在任何页之外，造成区间断裂。
+        var pageStart = 0
+        /// 当前页首行的绝对 Y。
+        var pageTop: CGFloat = 0
+        /// 是否已开始记录当前页。
+        var pageOpen = false
 
         for line in lines {
             let lineHeight = line.maxY - line.minY
+            let lineEnd = line.range.location + line.range.length
 
-            if currentStart == nil {
-                currentStart = line.range.location
-                currentEnd = line.range.location + line.range.length
-                currentTop = line.minY
-                currentBottom = line.maxY
+            if !pageOpen {
+                pageOpen = true
+                pageTop = line.minY
 
                 // 单行超过整页：独占一页
                 if lineHeight > pageHeight {
-                    flush()
+                    let end = min(totalLength, lineEnd)
+                    if end > pageStart {
+                        slices.append(
+                            PageSlice(
+                                range: NSRange(location: pageStart, length: end - pageStart),
+                                pageIndex: pageIndex,
+                                yOffset: pageTop
+                            )
+                        )
+                        pageIndex += 1
+                    }
+                    pageStart = end
+                    pageOpen = false
                 }
                 continue
             }
 
-            // 这一行放不下 → 结束当前页，开启新页
-            if line.maxY - currentTop > pageHeight {
-                flush()
-                currentStart = line.range.location
-                currentEnd = line.range.location + line.range.length
-                currentTop = line.minY
-                currentBottom = line.maxY
+            // 这一行放不下 → 结束当前页
+            if line.maxY - pageTop > pageHeight {
+                let end = min(totalLength, line.range.location)
+                if end > pageStart {
+                    slices.append(
+                        PageSlice(
+                            range: NSRange(location: pageStart, length: end - pageStart),
+                            pageIndex: pageIndex,
+                            yOffset: pageTop
+                        )
+                    )
+                    pageIndex += 1
+                    pageStart = end
+                }
 
+                // 开启新页
+                pageTop = line.minY
                 if lineHeight > pageHeight {
-                    flush()
+                    let soloEnd = min(totalLength, lineEnd)
+                    if soloEnd > pageStart {
+                        slices.append(
+                            PageSlice(
+                                range: NSRange(location: pageStart, length: soloEnd - pageStart),
+                                pageIndex: pageIndex,
+                                yOffset: pageTop
+                            )
+                        )
+                        pageIndex += 1
+                    }
+                    pageStart = soloEnd
+                    pageOpen = false
                 }
                 continue
             }
-
-            // 放得下 → 并入当前页
-            currentEnd = line.range.location + line.range.length
-            currentBottom = line.maxY
         }
 
-        // 收尾
-        flush()
+        // 收尾：剩余文本全部归入最后一页
+        if pageStart < totalLength {
+            slices.append(
+                PageSlice(
+                    range: NSRange(location: pageStart, length: totalLength - pageStart),
+                    pageIndex: pageIndex,
+                    yOffset: pageTop
+                )
+            )
+        }
 
-        // 兜底：若因空行等原因没生成任何页，整章作为一页
+        // 兜底
         if slices.isEmpty, totalLength > 0 {
             slices.append(
                 PageSlice(
