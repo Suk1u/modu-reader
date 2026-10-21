@@ -90,7 +90,8 @@ struct LargeFilePerformanceTests {
 
     @Test("单章分页 10 万字在 2 秒内完成")
     func paginateLargeChapter() {
-        let text = String(repeating: "这是一段用于测试分页的正文内容，需要足够长才能产生多页。\n", count: 3000)
+        // 每行 28 个字符，5000 行 ≈ 14 万字符
+        let text = String(repeating: "这是一段用于测试分页的正文内容，需要足够长才能产生多页。\n", count: 5000)
         #expect((text as NSString).length > 100_000)
 
         let profile = TypographyProfile(
