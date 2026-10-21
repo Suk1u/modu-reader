@@ -56,7 +56,8 @@ struct ImportServiceTests {
         let result = try await service.importFile(at: url)
 
         #expect(result.chapterCount == 3)
-        #expect(result.title.contains("ModuSource"))
+        // 未传 originalFileName 时，书名回退到沙盒副本名 source.txt
+        #expect(result.title == "source")
 
         let books = try context.fetch(FetchDescriptor<BookEntity>())
         #expect(books.count == 1)
@@ -196,8 +197,9 @@ struct ImportServiceTests {
 
         let result = try await service.importFile(at: url)
 
-        // 文件本身叫 ModuSource-<uuid>.txt，去掉扩展名后应保留前缀
-        #expect(result.title.hasPrefix("ModuSource-"))
+        // 未传 originalFileName 时，书名回退到沙盒副本名 source.txt
+        // （真实调用路径一定会传 originalFileName，见 titleFromOriginalFileName）
+        #expect(result.title == "source")
     }
 
     @Test("书名从文件名推导并清理站点后缀")

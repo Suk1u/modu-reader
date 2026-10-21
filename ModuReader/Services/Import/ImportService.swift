@@ -155,9 +155,20 @@ final class ImportService {
         forcedEncoding: String.Encoding?
     ) async throws -> ImportResult {
         let parser = TextPublicationParser(fileStore: fileStore)
-        let title = TextPublicationParser.deriveTitle(
-            from: originalFileName ?? source.lastPathComponent
-        )
+
+        // 书名来源优先级：
+        // 1. 调用方显式传入的 originalFileName（真实导入路径）
+        // 2. 沙盒副本的文件名
+        //
+        // 沙盒副本统一叫 source.<ext>，所以第 2 条会得到 "source"。
+        // 这是给测试和调试路径用的兜底，不是正常情况。
+        let title: String
+        if let originalFileName {
+            title = TextPublicationParser.deriveTitle(from: originalFileName)
+        } else {
+            Diagnostics.log("ImportService: 未传 originalFileName，书名将回退为副本名")
+            title = TextPublicationParser.deriveTitle(from: source.lastPathComponent)
+        }
 
         let parsed: ParsedTextPublication
         do {
