@@ -88,7 +88,7 @@ enum TextEncodingDetector {
         // 5. 日文
         let japaneseCandidates: [(String.Encoding, String)] = [
             (encoding(from: .shiftJIS), "Shift-JIS"),
-            (encoding(from: .japaneseEUC), "EUC-JP"),
+            (encoding(from: .EUC_JP), "EUC-JP"),
         ]
         for (encoding, name) in japaneseCandidates {
             if let result = evaluateJapanese(data: data, encoding: encoding, displayName: name) {
@@ -132,7 +132,7 @@ enum TextEncodingDetector {
         (.utf16LittleEndian, "UTF-16 LE"),
         (.utf16BigEndian, "UTF-16 BE"),
         (encoding(from: .shiftJIS), "Shift-JIS"),
-        (encoding(from: .japaneseEUC), "EUC-JP"),
+        (encoding(from: .EUC_JP), "EUC-JP"),
         (encoding(from: .EUC_KR), "EUC-KR"),
         (.windowsCP1252, "Windows-1252"),
         (.isoLatin1, "ISO-8859-1"),

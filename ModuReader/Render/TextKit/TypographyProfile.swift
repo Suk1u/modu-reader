@@ -138,12 +138,14 @@ struct TypographyProfile: Hashable, Sendable {
     ///   因为属性字典最终要交给 TextKit。
     func attributes(textColor: UIColor) -> [NSAttributedString.Key: Any] {
         let font = fontFamily.font(size: fontSize)
-        return [
-            .font: font,
-            .foregroundColor: textColor,
-            .paragraphStyle: paragraphStyle(),
-            .kern: letterSpacing,
-        ]
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        attributes[.font] = font
+        attributes[.foregroundColor] = textColor
+        attributes[.paragraphStyle] = paragraphStyle()
+        if letterSpacing != 0 {
+            attributes[.kern] = NSNumber(value: Double(letterSpacing))
+        }
+        return attributes
     }
 
     /// 构建正文属性字典（RGB 分量版，可跨队列传递）。

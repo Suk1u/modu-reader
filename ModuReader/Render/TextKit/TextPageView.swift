@@ -13,6 +13,7 @@ import UIKit
 /// - 只持有本页的 `NSAttributedString` 子串，不共享整章（内存可控）。
 /// - 用 `NSTextViewportLayoutController` 驱动布局，`draw(_:)` 中逐 fragment 绘制。
 /// - 不使用 `UITextView`：其封装过深，无法精确控制分页与 fragment 生命周期。
+@MainActor
 final class TextPageView: UIView {
 
     // MARK: - TextKit stack
@@ -89,9 +90,9 @@ final class TextPageView: UIView {
 
     /// 仅更新文字颜色（主题切换），不重新分页。
     func updateTextColor(_ color: UIColor) {
-        guard contentStorage.attributedString.length > 0 else { return }
-        let range = NSRange(location: 0, length: contentStorage.attributedString.length)
-        let mutable = NSMutableAttributedString(attributedString: contentStorage.attributedString)
+        guard let current = contentStorage.attributedString, current.length > 0 else { return }
+        let range = NSRange(location: 0, length: current.length)
+        let mutable = NSMutableAttributedString(attributedString: current)
         mutable.addAttribute(.foregroundColor, value: color, range: range)
         contentStorage.attributedString = mutable
         setNeedsDisplay()
@@ -108,7 +109,7 @@ final class TextPageView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        guard contentStorage.attributedString.length > 0 else { return }
+        guard let text = contentStorage.attributedString, text.length > 0 else { return }
 
         viewportController?.layoutViewport()
 
@@ -149,13 +150,23 @@ final class TextPageView: UIView {
 
 // MARK: - NSTextViewportLayoutControllerDelegate
 
+/// `NSTextViewportLayoutControllerDelegate` 不是 `@MainActor` 协议，
+/// 而 `TextPageView` 是。用 `nonisolated` 实现并在内部回到主线程，
+/// 避免 Swift 6 的跨 actor 隔离报错。
 extension TextPageView: NSTextViewportLayoutControllerDelegate {
 
-    func viewportBounds(for textViewportLayoutController: NSTextViewportLayoutController) -> CGRect {
-        bounds
+    nonisolated func viewportBounds(
+        for textViewportLayoutController: NSTextViewportLayoutController
+    ) -> CGRect {
+        // viewportBounds 会在布局阶段被同步调用，必须立即返回。
+        // MainActor.assumeIsolated 在这里是安全的：TextKit 的布局驱动来自
+        // 主线程的 layoutViewport() 调用（见 configure / layoutSubviews / draw）。
+        MainActor.assumeIsolated {
+            self.bounds
+        }
     }
 
-    func textViewportLayoutController(
+    nonisolated func textViewportLayoutController(
         _ textViewportLayoutController: NSTextViewportLayoutController,
         configureRenderingSurfaceFor textLayoutFragment: NSTextLayoutFragment
     ) {

@@ -298,7 +298,7 @@ struct BookCard: View {
         .aspectRatio(3.0 / 4.0, contentMode: .fit)
         .overlay {
             ConcentricRectangle(corners: .concentric(minimum: .fixed(10)), isUniform: true)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
         }
         .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
     }
