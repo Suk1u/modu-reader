@@ -17,6 +17,7 @@ struct LibraryView: View {
 
     @State private var isImporting = false
     @State private var importError: String?
+    @State private var importSuccessMessage: String?
     @State private var importingCount = 0
     @State private var searchText = ""
     @State private var sortOrder: LibrarySortOrder = .recent
@@ -92,9 +93,10 @@ struct LibraryView: View {
                     await importFromOpenURL(url)
                 }
             }
-            .overlay {
+            .overlay(alignment: .top) {
                 if importingCount > 0 {
-                    importingOverlay
+                    importingBanner
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .confirmationDialog(
@@ -117,33 +119,45 @@ struct LibraryView: View {
             } message: {
                 Text("将同时删除阅读进度。此操作不可撤销。")
             }
-            .alert("导入失败", isPresented: Binding(
-                get: { importError != nil },
-                set: { if !$0 { importError = nil } }
-            )) {
-                Button("好", role: .cancel) {}
-            } message: {
-                Text(importError ?? "")
-            }
+        }
+        // 注意：alert 必须挂在 NavigationStack 外层。
+        // 挂在内部时，fileImporter 的 sheet 刚 dismiss 就弹 alert，
+        // iOS 26 会丢弃这次呈现，用户完全看不到失败原因。
+        .alert("导入失败", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(importError ?? "")
+        }
+        .alert("导入成功", isPresented: Binding(
+            get: { importSuccessMessage != nil },
+            set: { if !$0 { importSuccessMessage = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(importSuccessMessage ?? "")
         }
     }
 
-    /// 导入进度遮罩。导入大文件时用户能看到反馈，而不是以为没反应。
-    private var importingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.15)
-                .ignoresSafeArea()
-
-            VStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.large)
-                Text(importingCount == 1 ? "正在导入…" : "正在导入 \(importingCount) 个文件…")
-                    .font(.subheadline)
-            }
-            .padding(24)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18))
+    /// 导入进度条。
+    ///
+    /// 刻意做成不阻挡交互的顶部横幅，而不是全屏遮罩：
+    /// 全屏遮罩一旦因异常未关闭，用户会以为整个 App 卡死。
+    private var importingBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(importingCount == 1 ? "正在导入…" : "正在导入 \(importingCount) 个文件…")
+                .font(.footnote)
+            Spacer(minLength: 0)
         }
-        .transition(.opacity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
     // MARK: - Subviews
@@ -220,42 +234,112 @@ struct LibraryView: View {
         case .success(let urls):
             guard !urls.isEmpty else { return }
             importingCount = urls.count
+
+            // 关键：在回调内**同步**复制到沙盒临时目录。
+            //
+            // fileImporter 的 completion 在 sheet dismiss 之后才执行，
+            // 此时 security scope 可能已经失效。若在异步任务里再去读原 URL，
+            // 会得到「文件不存在 / 无权限」，而错误又被 SwiftUI 丢弃，
+            // 表现就是「点了打开没反应」。
+            //
+            // 同步复制虽然会占用主线程一小段时间，但这是唯一可靠的方式。
+            // 单个文件复制 5MB 约 10~30ms，可以接受。
+            var staged: [(url: URL, originalName: String)] = []
+            var stagingFailures: [String] = []
+
+            for url in urls {
+                let originalName = url.lastPathComponent
+                do {
+                    let temp = try StageFile.copyToStaging(url)
+                    staged.append((temp, originalName))
+                } catch {
+                    stagingFailures.append("\(originalName)：\(error.localizedDescription)")
+                }
+            }
+
+            if staged.isEmpty {
+                importingCount = 0
+                importError = stagingFailures.isEmpty
+                    ? "未能读取所选文件。"
+                    : stagingFailures.joined(separator: "\n")
+                return
+            }
+
             Task {
-                await importFiles(urls)
+                await importFiles(staged, stagingFailures: stagingFailures)
+                importingCount = 0
             }
         case .failure(let error):
+            // 用户主动取消不算错误，不弹窗
+            let nsError = error as NSError
+            if nsError.code == NSUserCancelledError { return }
             importError = error.localizedDescription
         }
     }
 
     /// 处理系统通过 openURL 传入的文件。
+    ///
+    /// 同样先同步暂存：openURL 给的 URL 可能是 Inbox 临时副本，
+    /// 系统会在回调返回后清理。
     private func importFromOpenURL(_ url: URL) async {
+        let originalName = url.lastPathComponent
+        let staged: URL
+        do {
+            staged = try StageFile.copyToStaging(url)
+        } catch {
+            importError = "\(originalName)：\(error.localizedDescription)"
+            return
+        }
+
         importingCount = 1
         defer { importingCount = 0 }
 
         let service = appContainer.makeImportService(context: modelContext)
         do {
-            _ = try await service.importFile(at: url)
+            let result = try await service.importFile(
+                at: staged,
+                originalFileName: originalName
+            )
+            importSuccessMessage = "已添加《\(result.title)》。"
         } catch {
-            importError = "\(url.lastPathComponent)：\(error.localizedDescription)"
+            importError = "\(originalName)：\(error.localizedDescription)"
         }
+        StageFile.discard(staged)
     }
 
-    private func importFiles(_ urls: [URL]) async {
+    /// 导入暂存文件。
+    ///
+    /// - Parameters:
+    ///   - staged: 暂存副本 URL 与原始文件名。
+    ///   - stagingFailures: 暂存阶段就已失败的文件说明。
+    private func importFiles(
+        _ staged: [(url: URL, originalName: String)],
+        stagingFailures: [String]
+    ) async {
         let service = appContainer.makeImportService(context: modelContext)
-        var failures: [String] = []
+        var failures = stagingFailures
+        var imported = 0
 
-        for url in urls {
+        for item in staged {
+            defer { StageFile.discard(item.url) }
+
             do {
-                _ = try await service.importFile(at: url)
+                _ = try await service.importFile(
+                    at: item.url,
+                    originalFileName: item.originalName
+                )
+                imported += 1
             } catch {
-                failures.append("\(url.lastPathComponent)：\(error.localizedDescription)")
+                failures.append("\(item.originalName)：\(error.localizedDescription)")
             }
         }
 
-        importingCount = 0
         if !failures.isEmpty {
             importError = failures.joined(separator: "\n")
+        } else if imported > 0 {
+            importSuccessMessage = imported == 1
+                ? "已添加 1 本书。"
+                : "已添加 \(imported) 本书。"
         }
     }
 }

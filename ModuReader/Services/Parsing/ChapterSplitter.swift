@@ -57,20 +57,47 @@ enum ChapterSplitter {
             options: [.anchorsMatchLines]
         )
 
-        // 第一轮：只收集主规则候选（含数字列表候选，但分开存）
+        // 第一轮：收集候选（主规则与数字列表分开存）
+        //
+        // 性能：200 万字符的文本逐行 enumerate + 每行跑正则会很慢。
+        // 先按换行粗切，只对长度 ≤ 60 的行跑正则 —— 标题不可能更长。
         var primaryCandidates: [Candidate] = []
         var numericCandidates: [Candidate] = []
 
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byLines]) { line, lineRange, _, _ in
-            guard let line, !line.isEmpty else { return }
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed.count <= 60 else { return }
+        var lineStart = 0
+        let totalLength = ns.length
 
-            if matches(trimmed, regex: primaryRegex) {
-                primaryCandidates.append(Candidate(title: trimmed, location: lineRange.location))
-            } else if matches(trimmed, regex: numericRegex) {
-                numericCandidates.append(Candidate(title: trimmed, location: lineRange.location))
+        while lineStart < totalLength {
+            // getLineStart 是 O(1) 级的下标操作，比每行都调 range(of:) 快得多
+            var start = 0
+            var end = 0
+            var contentsEnd = 0
+            ns.getLineStart(
+                &start,
+                end: &end,
+                contentsEnd: &contentsEnd,
+                for: NSRange(location: lineStart, length: 0)
+            )
+
+            let lineLength = contentsEnd - start
+
+            // 长行直接跳过：标题不可能超过 60 字符
+            if lineLength > 0, lineLength <= 120 {
+                let raw = ns.substring(with: NSRange(location: start, length: lineLength))
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if !trimmed.isEmpty, trimmed.count <= 60 {
+                    if matches(trimmed, regex: primaryRegex) {
+                        primaryCandidates.append(Candidate(title: trimmed, location: start))
+                    } else if matches(trimmed, regex: numericRegex) {
+                        numericCandidates.append(Candidate(title: trimmed, location: start))
+                    }
+                }
             }
+
+            // end 指向行尾换行之后
+            guard end > lineStart else { break }
+            lineStart = end
         }
 
         // 选择候选集：

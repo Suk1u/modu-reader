@@ -23,7 +23,8 @@ struct ParsedTextPublication: Sendable {
 /// 3. 归一化换行与不可见字符
 /// 4. `ChapterSplitter` 切分章节
 /// 5. 章节正文逐文件写入，索引写入 `index.json`
-struct TextPublicationParser {
+/// 纯文本解析器。无状态，可跨队列使用。
+struct TextPublicationParser: Sendable {
 
     private let fileStore: FileStore
 
@@ -118,9 +119,14 @@ struct TextPublicationParser {
         )
     }
 
-    /// 从文件名推导书名：去掉扩展名，清理常见站点后缀。
+    /// 从文件名推导书名。
     static func deriveTitle(from url: URL) -> String {
-        var name = url.deletingPathExtension().lastPathComponent
+        deriveTitle(from: url.lastPathComponent)
+    }
+
+    /// 从文件名（含扩展名）推导书名：去掉扩展名，清理常见站点后缀。
+    static func deriveTitle(from fileName: String) -> String {
+        var name = (fileName as NSString).deletingPathExtension
         name = name.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // 去掉常见的下载站后缀，如「书名_www.xxx.com」

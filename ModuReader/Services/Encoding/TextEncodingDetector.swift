@@ -53,9 +53,94 @@ enum TextEncodingDetector {
 
     /// 探测并解码。
     ///
+    /// 两阶段策略：
+    /// 1. 只用前 64KB 判断编码（避免对 5MB 文件做 6 次全文解码）。
+    /// 2. 确定编码后再对全文解码一次。
+    ///
     /// - Parameter data: 原始文件字节。
     /// - Returns: 探测结果。若全部策略失败，返回 UTF-8 兜底结果（`isFallback == true`）。
     static func detect(data: Data) -> EncodingDetectionResult {
+        // 小文件直接走完整流程，省一次切片
+        guard data.count > probeByteLimit else {
+            return detectFull(data: data)
+        }
+
+        // 大文件：先探测编码
+        guard let encoding = probeEncoding(data: data) else {
+            let fallback = String(decoding: data, as: UTF8.self)
+            return EncodingDetectionResult(
+                encoding: .utf8,
+                displayName: "UTF-8（兜底）",
+                text: fallback,
+                hasReplacementCharacters: fallback.contains("\u{FFFD}"),
+                isFallback: true
+            )
+        }
+
+        // 用探测结果解码全文
+        guard let text = String(data: data, encoding: encoding.encoding) else {
+            let fallback = String(decoding: data, as: UTF8.self)
+            return EncodingDetectionResult(
+                encoding: .utf8,
+                displayName: "UTF-8（兜底）",
+                text: fallback,
+                hasReplacementCharacters: true,
+                isFallback: true
+            )
+        }
+
+        return EncodingDetectionResult(
+            encoding: encoding.encoding,
+            displayName: encoding.displayName,
+            text: text,
+            hasReplacementCharacters: text.contains("\u{FFFD}"),
+            isFallback: false
+        )
+    }
+
+    /// 只判断编码，不解码全文。
+    ///
+    /// - Returns: 探测到的编码；无法判断时返回 nil。
+    static func probeEncoding(data: Data) -> (encoding: String.Encoding, displayName: String)? {
+        let probe = Data(data.prefix(probeByteLimit))
+
+        if let bom = detectByBOM(data: probe) {
+            return (bom.encoding, bom.displayName)
+        }
+
+        if let utf16 = detectUTF16WithoutBOM(probe: probe, data: probe) {
+            return (utf16.encoding, utf16.displayName)
+        }
+
+        if strictUTF8(probe) != nil {
+            return (.utf8, "UTF-8")
+        }
+
+        if let cjk = bestCJKCandidate(data: probe) {
+            return (cjk.encoding, cjk.displayName)
+        }
+
+        if let korean = evaluateKorean(
+            data: probe,
+            encoding: encoding(from: .EUC_KR),
+            displayName: "EUC-KR"
+        ) {
+            return (korean.encoding, korean.displayName)
+        }
+
+        if let western = evaluateWestern(
+            data: probe,
+            encoding: .windowsCP1252,
+            displayName: "Windows-1252"
+        ) {
+            return (western.encoding, western.displayName)
+        }
+
+        return nil
+    }
+
+    /// 完整探测（小文件路径）。
+    private static func detectFull(data: Data) -> EncodingDetectionResult {
         let probe = data.prefix(probeByteLimit)
 
         // 1. BOM

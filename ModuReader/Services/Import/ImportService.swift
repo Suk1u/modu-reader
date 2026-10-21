@@ -18,7 +18,7 @@ enum ImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .accessDenied:
-            "无法访问该文件，请检查文件权限。"
+            "无法访问该文件。请确认文件存在，且已允许本 App 访问。"
         case .unsupportedFormat(let ext):
             "暂不支持 .\(ext) 格式。当前版本仅支持 TXT 与 Markdown。"
         case .copyFailed(let reason):
@@ -38,6 +38,12 @@ struct ImportResult: Sendable {
 }
 
 /// 导入服务。
+///
+/// 隔离说明：
+/// - 类本身 `@MainActor`，因为要操作 `ModelContext`。
+/// - 文件读写与解析通过 `Task.detached` 放到后台，避免大文件阻塞主线程。
+/// - 安全范围访问必须在**调用方的同一线程**上开始并结束，
+///   因此 scope 的开启/关闭放在 `importFile` 入口与 `defer`，不跨任务边界。
 @MainActor
 final class ImportService {
 
@@ -52,15 +58,22 @@ final class ImportService {
     /// 导入一个文件。
     ///
     /// - Parameters:
-    ///   - url: 用户通过 `fileImporter` 选择的外部 URL。
+    ///   - url: 已复制到沙盒的文件 URL（通常是 `StageFile` 的暂存副本）。
+    ///     传暂存副本而非原始 picker URL，是因为 picker 的安全范围授权
+    ///     在回调返回后可能失效。
+    ///   - originalFileName: 原始文件名，用于推导书名。为 nil 时从 `url` 推导。
     ///   - forcedEncoding: 手动指定的编码（为 nil 时自动探测）。
     /// - Returns: 导入结果。
-    func importFile(at url: URL, forcedEncoding: String.Encoding? = nil) async throws -> ImportResult {
+    func importFile(
+        at url: URL,
+        originalFileName: String? = nil,
+        forcedEncoding: String.Encoding? = nil
+    ) async throws -> ImportResult {
         // 1. 安全范围访问
         //
-        // 注意：返回 false 不等于失败。沙盒内的 URL（例如从 openURL 传入的
-        // Inbox 副本）不需要安全范围，此时返回 false 但文件仍可读。
-        // 真正判断能否读取要靠下面的 isReadableFile 检查。
+        // 返回 false 不等于失败：沙盒内的 URL（例如从 openURL 传入的 Inbox 副本）
+        // 不需要安全范围，此时返回 false 但文件仍可读。
+        // 真正判断能否读取靠下面的 isReadableFile 检查。
         let scoped = url.startAccessingSecurityScopedResource()
         defer {
             if scoped {
@@ -68,9 +81,19 @@ final class ImportService {
             }
         }
 
-        // 2. 可读性前置校验，给出明确错误而不是让后续操作静默失败
+        // 2. 可读性前置校验
+        //
+        // 注意：不能只看 isReadableFile。iCloud Drive 上的文件可能是
+        // 「已下载但未物化」的占位符，此时可读但读取会触发下载。
+        // 这里同时检查文件大小，为 0 时明确报错。
         guard FileManager.default.isReadableFile(atPath: url.path) else {
             throw ImportError.accessDenied
+        }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+        guard fileSize > 0 else {
+            throw ImportError.copyFailed("文件为空或尚未从 iCloud 下载完成。")
         }
 
         // 3. 嗅探格式
@@ -98,17 +121,21 @@ final class ImportService {
             throw ImportError.copyFailed(error.localizedDescription)
         }
 
-        // 5. 解析
+        // 5. 解析（在后台执行，避免大文件阻塞主线程）
         let parser = TextPublicationParser(fileStore: fileStore)
+        let title = TextPublicationParser.deriveTitle(
+            from: originalFileName ?? url.lastPathComponent
+        )
         let parsed: ParsedTextPublication
         do {
-            parsed = try await parser.parse(
-                url: destination,
-                bookID: bookID,
-                // 用导入时的原始文件名推导书名，不依赖沙盒内的副本名
-                displayTitle: TextPublicationParser.deriveTitle(from: url),
-                forcedEncoding: forcedEncoding
-            )
+            parsed = try await Task.detached(priority: .userInitiated) {
+                try await parser.parse(
+                    url: destination,
+                    bookID: bookID,
+                    displayTitle: title,
+                    forcedEncoding: forcedEncoding
+                )
+            }.value
         } catch {
             try? fileStore.deleteBook(bookID)
             throw ImportError.parseFailed(error.localizedDescription)
