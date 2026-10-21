@@ -386,6 +386,28 @@ final class TextKitEngine: UIViewController, RenderEngine {
         lastProfile = profile
     }
 
+    /// 在后台队列分页，主线程只接收结果。
+    ///
+    /// 参数与返回值全部是 `Sendable` 值类型，满足 Swift 6 严格并发检查。
+    private func paginateOffMain(
+        text: String,
+        profile: TypographyProfile,
+        textColor: RGBColor,
+        chapterIndex: Int
+    ) async -> PaginatedChapter {
+        await withCheckedContinuation { continuation in
+            paginationQueue.async {
+                let result = Paginator.paginate(
+                    text: text,
+                    profile: profile,
+                    textColor: textColor,
+                    chapterIndex: chapterIndex
+                )
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     // MARK: - Rendering
 
     private func renderCurrentPage() {
