@@ -304,17 +304,17 @@ struct EPUBParser: Sendable {
                     package.readingProgression = direction == "rtl" ? .rtl : .ltr
                 }
 
-            case "title":
+            case "dc:title", "title":
                 if package.title == nil {
                     pendingTitle = true
                 }
 
-            case "creator":
+            case "dc:creator", "creator":
                 if package.author == nil {
                     pendingAuthor = true
                 }
 
-            case "publisher":
+            case "dc:publisher", "publisher":
                 if package.publisher == nil {
                     pendingPublisher = true
                 }
@@ -389,13 +389,13 @@ struct EPUBParser: Sendable {
             qualifiedName qName: String?
         ) {
             switch elementName {
-            case "title":
+            case "dc:title", "title":
                 pendingTitle = false
                 package.title = package.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-            case "creator":
+            case "dc:creator", "creator":
                 pendingAuthor = false
                 package.author = package.author?.trimmingCharacters(in: .whitespacesAndNewlines)
-            case "publisher":
+            case "dc:publisher", "publisher":
                 pendingPublisher = false
                 package.publisher = package.publisher?.trimmingCharacters(in: .whitespacesAndNewlines)
             case "dc:language", "language":

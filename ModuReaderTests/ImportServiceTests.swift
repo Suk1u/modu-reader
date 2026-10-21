@@ -152,7 +152,7 @@ struct ImportServiceTests {
         #expect(entries.isEmpty)
     }
 
-    @Test("书名取自原始文件名，而不是沙盒副本名")
+    @Test("书名取自 originalFileName 参数，而不是沙盒副本名")
     func titleFromOriginalFileName() async throws {
         let (service, _, context, _) = try makeEnvironment()
         let text = """
@@ -167,15 +167,37 @@ struct ImportServiceTests {
         """
         let url = try writeTempFile(text, ext: "txt")
 
-        let result = try await service.importFile(at: url)
+        // 模拟真实调用：暂存副本名是 UUID，原始名单独传入
+        let result = try await service.importFile(
+            at: url,
+            originalFileName: "三体.txt"
+        )
 
-        // 沙盒内副本叫 source.txt，但书名必须来自原始文件名
-        #expect(result.title != "source")
-        #expect(result.title.hasPrefix("ModuSource-"))
+        #expect(result.title == "三体")
 
         let books = try context.fetch(FetchDescriptor<BookEntity>())
-        #expect(books[0].title != "source")
-        #expect(books[0].title.hasPrefix("ModuSource-"))
+        #expect(books[0].title == "三体")
+    }
+
+    @Test("未传 originalFileName 时回退到文件自身名字")
+    func titleFallbackToFileURL() async throws {
+        let (service, _, _, _) = try makeEnvironment()
+        let text = """
+        第一章 甲
+        内容。
+
+        第二章 乙
+        内容。
+
+        第三章 丙
+        内容。
+        """
+        let url = try writeTempFile(text, ext: "txt")
+
+        let result = try await service.importFile(at: url)
+
+        // 文件本身叫 ModuSource-<uuid>.txt，去掉扩展名后应保留前缀
+        #expect(result.title.hasPrefix("ModuSource-"))
     }
 
     @Test("书名从文件名推导并清理站点后缀")
