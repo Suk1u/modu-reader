@@ -171,3 +171,116 @@ struct PaginatorTests {
         #expect(chapter.characterOffset(forPageIndex: 0) == 0)
     }
 }
+
+// MARK: - TextKit 2 分页特性
+
+@Suite("TextKit 2 分页")
+struct TextKitPaginatorTests {
+
+    private func makeProfile(width: CGFloat = 320, height: CGFloat = 480) -> TypographyProfile {
+        TypographyProfile(
+            fontFamily: .system,
+            fontSize: 19,
+            lineHeightMultiple: 1.8,
+            paragraphSpacing: 8,
+            firstLineIndent: 2,
+            letterSpacing: 0,
+            contentWidth: width,
+            contentHeight: height
+        )
+    }
+
+    @Test("每页的 yOffset 单调递增")
+    func yOffsetMonotonic() {
+        let text = String(repeating: "这是一段用于测试分页的正文内容。\n", count: 300)
+        let result = Paginator.paginate(
+            text: text,
+            profile: makeProfile(),
+            textColor: ReaderTheme.paper.text,
+            chapterIndex: 0
+        )
+
+        #expect(result.pageCount > 1)
+
+        var previous: CGFloat = -1
+        for slice in result.slices {
+            #expect(slice.yOffset >= previous)
+            previous = slice.yOffset
+        }
+        #expect(result.slices[0].yOffset == 0)
+    }
+
+    @Test("每页内容高度不超过页高")
+    func pageHeightRespected() {
+        let text = String(repeating: "测试内容行。\n", count: 400)
+        let profile = makeProfile(height: 480)
+        let result = Paginator.paginate(
+            text: text,
+            profile: profile,
+            textColor: ReaderTheme.paper.text,
+            chapterIndex: 0
+        )
+
+        // 用 yOffset 差值反推每页高度
+        for index in 0..<(result.slices.count - 1) {
+            let height = result.slices[index + 1].yOffset - result.slices[index].yOffset
+            #expect(height <= profile.contentHeight + 1)
+        }
+    }
+
+    @Test("分页区间仍首尾相接")
+    func rangesContiguous() {
+        let text = String(repeating: "连续性测试。\n", count: 200)
+        let result = Paginator.paginate(
+            text: text,
+            profile: makeProfile(),
+            textColor: ReaderTheme.paper.text,
+            chapterIndex: 0
+        )
+
+        var expected = 0
+        for slice in result.slices {
+            #expect(slice.range.location == expected)
+            expected = slice.range.location + slice.range.length
+        }
+        #expect(expected == (text as NSString).length)
+    }
+
+    @Test("字号变化产生不同分页")
+    func fontSizeAffectsPagination() {
+        let text = String(repeating: "字号测试。\n", count: 200)
+
+        var small = makeProfile()
+        small.fontSize = 14
+        var large = makeProfile()
+        large.fontSize = 28
+
+        let a = Paginator.paginate(
+            text: text, profile: small,
+            textColor: ReaderTheme.paper.text, chapterIndex: 0
+        )
+        let b = Paginator.paginate(
+            text: text, profile: large,
+            textColor: ReaderTheme.paper.text, chapterIndex: 0
+        )
+
+        #expect(b.pageCount > a.pageCount)
+    }
+
+    @Test("同输入分页结果稳定")
+    func deterministic() {
+        let text = String(repeating: "稳定性测试内容。\n", count: 150)
+        let profile = makeProfile()
+
+        let first = Paginator.paginate(
+            text: text, profile: profile,
+            textColor: ReaderTheme.paper.text, chapterIndex: 0
+        )
+        let second = Paginator.paginate(
+            text: text, profile: profile,
+            textColor: ReaderTheme.paper.text, chapterIndex: 0
+        )
+
+        #expect(first.slices == second.slices)
+    }
+}

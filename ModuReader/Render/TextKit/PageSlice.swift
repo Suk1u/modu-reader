@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 
 /// 一页的字符区间。
 ///
@@ -16,10 +17,16 @@ struct PageSlice: Hashable, Sendable {
     var range: NSRange
     /// 该页在章节中的序号（0 起）。
     var pageIndex: Int
+    /// 该页首行在整章排版结果中的顶部 Y 坐标。
+    ///
+    /// 渲染时据此把整章的排版结果平移到页面原点，
+    /// 避免「按页切片重新排版」导致的行距与段落间距错位。
+    var yOffset: CGFloat
 
-    init(range: NSRange, pageIndex: Int) {
+    init(range: NSRange, pageIndex: Int, yOffset: CGFloat = 0) {
         self.range = range
         self.pageIndex = pageIndex
+        self.yOffset = yOffset
     }
 }
 

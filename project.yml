@@ -61,7 +61,17 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        LSSupportsOpeningDocumentsInPlace: true
+        # 刻意设为 false。
+        #
+        # true 时系统把「共享/用其他应用打开」的文件**原地**打开，
+        # 通过安全范围 URL 交给 App，不复制到 Documents/Inbox。
+        # 但 iOS 26+ 强制 scene 生命周期后，这条 URL 回调路径实测不触发
+        # （application(_:open:options:) 与 onOpenURL 均无日志），
+        # 导致共享打开完全无反应。
+        #
+        # false 时系统把文件**复制**到 Documents/Inbox，
+        # 由 InboxScanner 主动扫描 —— 不依赖任何回调，必然有效。
+        LSSupportsOpeningDocumentsInPlace: false
         UIFileSharingEnabled: true
         UISupportsDocumentBrowser: false
         ITSAppUsesNonExemptEncryption: false

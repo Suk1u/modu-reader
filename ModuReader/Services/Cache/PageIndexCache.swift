@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 
 /// 分页缓存。
 ///
@@ -61,7 +62,8 @@ struct PageIndexCache: Sendable {
         let slices = stored.slices.map {
             PageSlice(
                 range: NSRange(location: $0.location, length: $0.length),
-                pageIndex: $0.pageIndex
+                pageIndex: $0.pageIndex,
+                yOffset: CGFloat($0.yOffset ?? 0)
             )
         }
         guard !slices.isEmpty else { return nil }
@@ -89,7 +91,8 @@ struct PageIndexCache: Sendable {
                 StoredPagination.Slice(
                     location: $0.range.location,
                     length: $0.range.length,
-                    pageIndex: $0.pageIndex
+                    pageIndex: $0.pageIndex,
+                    yOffset: Double($0.yOffset)
                 )
             }
         )
@@ -188,5 +191,7 @@ private struct StoredPagination: Codable {
         var location: Int
         var length: Int
         var pageIndex: Int
+        /// 该页首行在整章排版中的 Y 偏移。旧缓存没有此字段，解码时为 nil。
+        var yOffset: Double?
     }
 }

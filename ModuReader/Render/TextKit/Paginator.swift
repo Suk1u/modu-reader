@@ -2,33 +2,42 @@
 //  Paginator.swift
 //  ModuReader
 //
-//  分页器。用 CoreText 的 CTFramesetter 计算每页字符区间。
+//  分页器。用 TextKit 2 的 NSTextLayoutManager 计算每页字符区间与纵向偏移。
 //
-//  为什么用 CTFramesetter 而不是 TextKit 2 的 layout fragment：
-//  - `NSTextLayoutManager.enumerateTextLayoutFragments` 依赖 viewport 驱动，
-//    在没有 `NSTextViewportLayoutController` 接管屏幕的情况下，
-//    `layoutFragmentFrame` 可能为 .zero，导致所有内容被算作一页。
-//  - `CTFramesetterCreateFrame` + `CTFrameGetVisibleStringRange` 直接返回
-//    「给定矩形能放下多少字符」，语义明确、结果确定、无需 UI 环境。
-//  - 分页是纯计算，与绘制解耦：TextKit 2 仍负责渲染（TextPageView）。
+//  为什么用 NSTextLayoutManager 而不是 CTFramesetter：
+//  - 与渲染共用同一套排版引擎，分页边界与绘制结果**必然一致**
+//    （CTFramesetter 与 TextKit 2 虽同源，但属性解释、段落间距处理有差异）
+//  - 支持 NSTextAttachment，图片可以真正参与文字流排版
+//  - 支持懒布局与增量失效，长章节性能更好
+//  - 段落属性（首行缩进、段间距）由 TextKit 统一解释，切片渲染不会错位
 //
-//  两者共享同一套 CoreText 断行引擎，因此分页边界与渲染结果一致。
+//  实现要点：
+//  容器高度设为极大值，让整章一次性排完（不分页），
+//  然后枚举每行的绝对 Y 坐标，按页高切分。
+//  这样「分页」只是对已完成的排版结果做区间划分，不会二次排版。
 //
 
 import Foundation
-import CoreText
 import UIKit
 
 /// 分页器。
 ///
-/// 纯函数，无状态，可在任意队列调用。输入输出均为值类型。
+/// 纯函数，无状态，可在任意后台队列调用。
+/// 输入输出均为值类型，TextKit 对象不跨越队列边界。
 enum Paginator {
+
+    /// 排版容器的高度上限。
+    ///
+    /// 取一个足够大的有限值而非 `.greatestFiniteMagnitude`：
+    /// 后者在某些路径上会触发浮点溢出，导致布局异常。
+    /// 1e7 pt 约等于 3500 屏，远超任何单章的实际高度。
+    private static let layoutHeightLimit: CGFloat = 10_000_000
 
     /// 对一章文本分页。
     ///
     /// - Parameters:
     ///   - attributedText: 已应用排版属性的章节文本。
-    ///   - profile: 排版指纹（决定可用尺寸）。
+    ///   - profile: 排版指纹（决定可用宽度与页高）。
     ///   - chapterIndex: 章节序号。
     /// - Returns: 分页快照。
     static func paginate(
@@ -45,66 +54,62 @@ enum Paginator {
             )
         }
 
-        let pageSize = CGSize(
-            width: max(1, profile.contentWidth),
-            height: max(1, profile.contentHeight)
+        let pageWidth = max(1, profile.contentWidth)
+        let pageHeight = max(1, profile.contentHeight)
+
+        // 建立整章排版栈。容器高度极大 → 一次排完，不做分页。
+        let contentStorage = NSTextContentStorage()
+        contentStorage.attributedString = attributedText
+
+        let layoutManager = NSTextLayoutManager()
+        layoutManager.usesFontLeading = true
+        layoutManager.usesHyphenation = false
+
+        let container = NSTextContainer(
+            size: CGSize(width: pageWidth, height: layoutHeightLimit)
+        )
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        layoutManager.textContainer = container
+
+        contentStorage.addTextLayoutManager(layoutManager)
+
+        // 强制完成整章布局，保证后续枚举到真实几何
+        layoutManager.ensureLayout(for: contentStorage.documentRange)
+
+        let lines = collectLines(
+            layoutManager: layoutManager,
+            contentStorage: contentStorage,
+            totalLength: length
         )
 
-        let framesetter = CTFramesetterCreateWithAttributedString(
-            attributedText as CFAttributedString
-        )
-
-        var slices: [PageSlice] = []
-        var start = 0
-        var pageIndex = 0
-
-        while start < length {
-            let pageRect = CGRect(origin: .zero, size: pageSize)
-            let path = CGPath(rect: pageRect, transform: nil)
-
-            let frame = CTFramesetterCreateFrame(
-                framesetter,
-                CFRange(location: start, length: 0),
-                path,
-                nil
+        guard !lines.isEmpty else {
+            return PaginatedChapter(
+                chapterIndex: chapterIndex,
+                characterCount: length,
+                slices: [PageSlice(range: NSRange(location: 0, length: length), pageIndex: 0)]
             )
-
-            let visible = CTFrameGetVisibleStringRange(frame)
-
-            // 防御：任何情况下都必须推进，否则死循环
-            guard visible.length > 0 else {
-                // 单字符都放不下（页面过小），退化为「一页一章」
-                slices.append(
-                    PageSlice(
-                        range: NSRange(location: start, length: length - start),
-                        pageIndex: pageIndex
-                    )
-                )
-                break
-            }
-
-            let sliceLength = min(visible.length, length - start)
-            slices.append(
-                PageSlice(
-                    range: NSRange(location: start, length: sliceLength),
-                    pageIndex: pageIndex
-                )
-            )
-
-            start += sliceLength
-            pageIndex += 1
         }
+
+        let slices = groupIntoPages(
+            lines: lines,
+            pageHeight: pageHeight,
+            totalLength: length
+        )
 
         return PaginatedChapter(
             chapterIndex: chapterIndex,
             characterCount: length,
-            slices: slices
+            slices: slices.isEmpty
+                ? [PageSlice(range: NSRange(location: 0, length: length), pageIndex: 0)]
+                : slices
         )
     }
 
     /// 对纯文本分页。
     ///
-    /// 这是跨队列调用的入口：参数全部是 `Sendable` 值类型，
+    /// 跨队列调用的入口：参数全部是 `Sendable` 值类型，
     /// `NSAttributedString` 在内部构造，不跨越队列边界。
     static func paginate(
         text: String,
@@ -121,5 +126,148 @@ enum Paginator {
             profile: profile,
             chapterIndex: chapterIndex
         )
+    }
+
+    // MARK: - 行信息收集
+
+    /// 一行的排版信息。
+    private struct LineInfo {
+        /// 该行在源文本中的字符区间。
+        var range: NSRange
+        /// 该行顶部的绝对 Y 坐标（相对排版起点）。
+        var minY: CGFloat
+        /// 该行底部绝对 Y 坐标。
+        var maxY: CGFloat
+    }
+
+    /// 枚举全部行，记录字符区间与绝对 Y 坐标。
+    ///
+    /// 用「fragment 的 Y + 行相对 fragment 的 Y」得到绝对坐标：
+    /// `textLineFragments[i].typographicBounds.origin` 是相对
+    /// 所属 fragment 的偏移，不是相对文档的。
+    private static func collectLines(
+        layoutManager: NSTextLayoutManager,
+        contentStorage: NSTextContentStorage,
+        totalLength: Int
+    ) -> [LineInfo] {
+        var lines: [LineInfo] = []
+        let documentStart = contentStorage.documentRange.location
+
+        layoutManager.enumerateTextLayoutFragments(
+            from: nil,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let fragmentFrame = fragment.layoutFragmentFrame
+            let fragmentTop = fragmentFrame.minY
+
+            for line in fragment.textLineFragments {
+                let bounds = line.typographicBounds
+                let lineTop = fragmentTop + bounds.minY
+                let lineBottom = lineTop + bounds.height
+                let range = line.characterRange
+
+                // 过滤越界与空行
+                guard range.location >= 0,
+                      range.length >= 0,
+                      range.location + range.length <= totalLength else {
+                    continue
+                }
+                guard bounds.height > 0 else { continue }
+
+                lines.append(
+                    LineInfo(range: range, minY: lineTop, maxY: lineBottom)
+                )
+            }
+
+            return true
+        }
+
+        return lines
+    }
+
+    // MARK: - 切页
+
+    /// 按页高把行分组为页。
+    ///
+    /// 切分规则：
+    /// - 累积行高，超过页高时开新页
+    /// - 单行本身超过页高（超大字号 / 巨图）时单独成页，防止死循环
+    /// - 页的 `yOffset` 取该页第一行的顶部 Y，渲染时据此平移
+    private static func groupIntoPages(
+        lines: [LineInfo],
+        pageHeight: CGFloat,
+        totalLength: Int
+    ) -> [PageSlice] {
+        var slices: [PageSlice] = []
+        var pageIndex = 0
+
+        var currentStart: Int?
+        var currentEnd = 0
+        var currentTop: CGFloat = 0
+        var currentBottom: CGFloat = 0
+
+        func flush() {
+            guard let start = currentStart, currentEnd > start else { return }
+            slices.append(
+                PageSlice(
+                    range: NSRange(location: start, length: currentEnd - start),
+                    pageIndex: pageIndex,
+                    yOffset: currentTop
+                )
+            )
+            pageIndex += 1
+            currentStart = nil
+        }
+
+        for line in lines {
+            let lineHeight = line.maxY - line.minY
+
+            if currentStart == nil {
+                currentStart = line.range.location
+                currentEnd = line.range.location + line.range.length
+                currentTop = line.minY
+                currentBottom = line.maxY
+
+                // 单行超过整页：独占一页
+                if lineHeight > pageHeight {
+                    flush()
+                }
+                continue
+            }
+
+            // 这一行放不下 → 结束当前页，开启新页
+            if line.maxY - currentTop > pageHeight {
+                flush()
+                currentStart = line.range.location
+                currentEnd = line.range.location + line.range.length
+                currentTop = line.minY
+                currentBottom = line.maxY
+
+                if lineHeight > pageHeight {
+                    flush()
+                }
+                continue
+            }
+
+            // 放得下 → 并入当前页
+            currentEnd = line.range.location + line.range.length
+            currentBottom = line.maxY
+        }
+
+        // 收尾
+        flush()
+
+        // 兜底：若因空行等原因没生成任何页，整章作为一页
+        if slices.isEmpty, totalLength > 0 {
+            slices.append(
+                PageSlice(
+                    range: NSRange(location: 0, length: totalLength),
+                    pageIndex: 0,
+                    yOffset: 0
+                )
+            )
+        }
+
+        return slices
     }
 }

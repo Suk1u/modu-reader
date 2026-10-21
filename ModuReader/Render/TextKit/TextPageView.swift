@@ -2,52 +2,71 @@
 //  TextPageView.swift
 //  ModuReader
 //
-//  单页文字渲染视图。
+//  单页文字视图。用 TextKit 2 渲染，与 Paginator 共用同一套排版引擎。
 //
-//  渲染策略：用 CoreText 直接绘制「章节全文 + 本页可见区间」。
-//  这与 Paginator 使用同一套 CoreText 断行引擎，因此分页边界与渲染完全一致。
+//  渲染策略：
+//  1. 整章文本灌入独立的 NSTextContentStorage
+//  2. 用与分页时完全相同的容器宽度排版（高度无限）
+//  3. 把排版结果整体上移 slice.yOffset，只露出本页那一屏
 //
-//  为什么不用 TextKit 2 渲染：
-//  - 分页已经用 CTFramesetter 算好，渲染若换用 TextKit 2 会引入第二套断行规则，
-//    可能出现「分页说这行在这页，渲染却把它挤到下一页」的错位。
-//  - 单页 CoreText 绘制足够快（一页通常 20~30 行），且内存占用极低。
-//  - 后续做选词/标注时，可以再引入 TextKit 2 的交互层，不影响分页。
+//  为什么「整章排版 + 平移」而不是「按页切片重新排版」：
+//  - 切片重新排版会让每页首段丢失段前距，末段丢失段后距，行距不一致
+//  - 跨页的段落缩进、列表编号会重新计算，出现错位
+//  - 图片等 attachment 在切片时会丢失上下文
+//  整章排版一次，分页只做区间划分，渲染只做平移 —— 三处结果必然一致。
 //
 
 import UIKit
-import CoreText
 
 /// 单页文字视图。
 @MainActor
 final class TextPageView: UIView {
 
-    /// 本页对应的字符区间（章节内绝对偏移）。
+    // MARK: - TextKit stack
+
+    private let contentStorage = NSTextContentStorage()
+    private let layoutManager = NSTextLayoutManager()
+    private let textContainer = NSTextContainer(size: .zero)
+
+    /// 本页对应的字符区间。
     private(set) var pageRange: NSRange = NSRange(location: 0, length: 0)
 
-    /// 本页要绘制的富文本（整章）。
-    private var chapterText: NSAttributedString?
-    /// 页面内边距已由调用方扣除，这里绘制区域就是 bounds。
-    private var contentSize: CGSize = .zero
+    /// 本页首行在整章排版中的 Y 偏移。
+    private var pageYOffset: CGFloat = 0
+
+    /// 当前使用的容器宽度，用于判断是否需要重建排版。
+    private var layoutWidth: CGFloat = 0
+
+    /// 排版容器的极大高度，与 Paginator 保持一致。
+    private static let layoutHeightLimit: CGFloat = 10_000_000
+
+    // MARK: - Init
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        configureLayer()
+        setup()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        configureLayer()
+        setup()
     }
 
-    private func configureLayer() {
+    private func setup() {
         backgroundColor = .clear
         isOpaque = false
         contentMode = .redraw
+        clipsToBounds = true
+
+        textContainer.lineFragmentPadding = 0
+        textContainer.widthTracksTextView = false
+        textContainer.heightTracksTextView = false
+        layoutManager.textContainer = textContainer
+        contentStorage.addTextLayoutManager(layoutManager)
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        // 不用 UIScreen.main：iPad 分屏 / 台前调度下它不可靠
         layer.contentsScale = traitCollection.displayScale
     }
 
@@ -61,91 +80,45 @@ final class TextPageView: UIView {
 
     // MARK: - Configuration
 
-    /// 图片视图缓存。键为图片绝对路径。
-    private var imageViews: [String: UIImageView] = [:]
-
     /// 配置本页内容。
     ///
     /// - Parameters:
-    ///   - chapterText: 本章完整富文本。
-    ///   - range: 本页在章节中的字符区间。
+    ///   - chapterText: 本章完整富文本（含图片 attachment）。
+    ///   - slice: 本页的区间与 Y 偏移。
     ///   - contentSize: 正文区域尺寸。
-    ///   - images: 本页范围内出现的图片（路径 + 在本页中的位置比例）。
     func configure(
         chapterText: NSAttributedString,
-        range: NSRange,
-        contentSize: CGSize,
-        images: [PageImage] = []
+        slice: PageSlice,
+        contentSize: CGSize
     ) {
-        self.chapterText = chapterText
-        self.pageRange = Self.clamp(range, to: chapterText.length)
-        self.contentSize = contentSize
-        self.pageImages = images
-        rebuildImageViews()
+        let safeRange = Self.clamp(slice.range, to: chapterText.length)
+        pageRange = safeRange
+        pageYOffset = slice.yOffset
+
+        let width = max(1, contentSize.width)
+
+        // 只在宽度变化时重新灌文本与排版。
+        // 同一章翻页时宽度不变，这里直接复用已有排版结果，翻页开销接近零。
+        if layoutWidth != width || contentStorage.attributedString == nil {
+            layoutWidth = width
+            textContainer.size = CGSize(width: width, height: Self.layoutHeightLimit)
+            contentStorage.attributedString = chapterText
+            layoutManager.invalidateLayout(for: contentStorage.documentRange)
+            layoutManager.ensureLayout(for: contentStorage.documentRange)
+        }
+
         setNeedsDisplay()
-    }
-
-    /// 本页的图片列表。
-    private var pageImages: [PageImage] = []
-
-    /// 重建图片视图。
-    private func rebuildImageViews() {
-        // 移除不再需要的
-        let needed = Set(pageImages.map(\.path))
-        for (path, view) in imageViews where !needed.contains(path) {
-            view.removeFromSuperview()
-            imageViews.removeValue(forKey: path)
-        }
-
-        guard contentSize.width > 1 else { return }
-
-        for image in pageImages {
-            let view: UIImageView
-            if let existing = imageViews[image.path] {
-                view = existing
-            } else {
-                guard let uiImage = UIImage(contentsOfFile: image.path) else {
-                    Diagnostics.log("TextPageView: 无法加载图片 \(image.path)")
-                    continue
-                }
-                view = UIImageView(image: uiImage)
-                view.contentMode = .scaleAspectFit
-                view.clipsToBounds = true
-                view.layer.cornerRadius = 6
-                view.layer.cornerCurve = .continuous
-                addSubview(view)
-                imageViews[image.path] = view
-            }
-
-            // 按比例定位：image.progress 是本页内的纵向比例
-            let height = min(contentSize.height * 0.42, view.image.map { img in
-                contentSize.width * (img.size.height / max(1, img.size.width))
-            } ?? contentSize.height * 0.3)
-            let y = contentSize.height * image.progress
-            view.frame = CGRect(
-                x: 0,
-                y: max(0, min(contentSize.height - height, y)),
-                width: contentSize.width,
-                height: height
-            )
-        }
-    }
-
-    /// 本页中的一张图片。
-    struct PageImage: Hashable {
-        /// 图片绝对路径。
-        var path: String
-        /// 在本页中的纵向位置比例（0...1）。
-        var progress: CGFloat
     }
 
     /// 仅更新文字颜色（主题切换），不重新分页。
     func updateTextColor(_ color: UIColor) {
-        guard let chapterText else { return }
-        let mutable = NSMutableAttributedString(attributedString: chapterText)
+        guard let current = contentStorage.attributedString, current.length > 0 else { return }
+        let mutable = NSMutableAttributedString(attributedString: current)
         let full = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.foregroundColor, value: color, range: full)
-        self.chapterText = mutable
+        contentStorage.attributedString = mutable
+        layoutManager.invalidateLayout(for: contentStorage.documentRange)
+        layoutManager.ensureLayout(for: contentStorage.documentRange)
         setNeedsDisplay()
     }
 
@@ -153,40 +126,30 @@ final class TextPageView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        guard let chapterText, pageRange.length > 0 else { return }
-        guard contentSize.width > 1, contentSize.height > 1 else { return }
+        guard contentStorage.attributedString?.length ?? 0 > 0 else { return }
 
-        // 分页时用的矩形与这里必须完全一致
-        let pageRect = CGRect(origin: .zero, size: contentSize)
-
-        // 只对「从本页起点到章节结尾」建 framesetter，
-        // 这样第一页就是本页内容，无需再做偏移裁剪。
-        let start = pageRange.location
-        let remainingLength = chapterText.length - start
-        guard remainingLength > 0 else { return }
-
-        let remaining = chapterText.attributedSubstring(
-            from: NSRange(location: start, length: remainingLength)
-        )
-
-        let framesetter = CTFramesetterCreateWithAttributedString(
-            remaining as CFAttributedString
-        )
-        let path = CGPath(rect: pageRect, transform: nil)
-        let frame = CTFramesetterCreateFrame(
-            framesetter,
-            CFRange(location: 0, length: 0),
-            path,
-            nil
-        )
-
-        // CoreText 使用左下原点，UIKit 上下文是左上原点
+        // 把整章排版结果上移 pageYOffset，只绘制本页那一屏。
+        //
+        // TextKit 2 的 fragment 坐标是「文档坐标系」（左上原点、向下为正），
+        // UIKit 的绘制上下文也是左上原点，因此直接平移即可，无需翻转。
         context.saveGState()
-        context.textMatrix = .identity
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -pageYOffset)
 
-        CTFrameDraw(frame, context)
+        let visibleBottom = pageYOffset + bounds.height
+
+        layoutManager.enumerateTextLayoutFragments(
+            from: nil,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let frame = fragment.layoutFragmentFrame
+
+            // 完全在可视区外的 fragment 跳过
+            if frame.maxY < pageYOffset { return true }
+            if frame.minY > visibleBottom { return false }
+
+            fragment.draw(at: frame.origin, in: context)
+            return true
+        }
 
         context.restoreGState()
     }
@@ -196,13 +159,9 @@ final class TextPageView: UIView {
     /// 回收前清理内容，避免复用池持有大文本与图片。
     func prepareForReuse() {
         pageRange = NSRange(location: 0, length: 0)
-        chapterText = nil
-        contentSize = .zero
-        pageImages = []
-        for (_, view) in imageViews {
-            view.removeFromSuperview()
-        }
-        imageViews.removeAll()
+        pageYOffset = 0
+        layoutWidth = 0
+        contentStorage.attributedString = NSAttributedString(string: "")
         setNeedsDisplay()
     }
 
