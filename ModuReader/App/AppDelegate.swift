@@ -82,6 +82,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// 记录 scene 连接时的 URL（冷启动场景）。
+    ///
+    /// 不设置 delegateClass：那会让 SwiftUI 不再创建窗口。
+    /// 只在这里观察连接选项，配合 onOpenURL 覆盖冷启动。
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        Diagnostics.log("AppDelegate: configurationForConnecting, urls=\(options.urlContexts.count)")
+
+        for context in options.urlContexts {
+            Diagnostics.log("AppDelegate: connecting URL \(context.url.lastPathComponent)")
+            deliver(context.url, delay: 1.5)
+        }
+
+        return UISceneConfiguration(
+            name: "Default Configuration",
+            sessionRole: connectingSceneSession.role
+        )
+    }
+
     /// 把 URL 投递给 SwiftUI 层。
     ///
     /// 关键：在这里**立即同步复制**到暂存区。

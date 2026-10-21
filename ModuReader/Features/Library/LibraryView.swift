@@ -78,31 +78,15 @@ struct LibraryView: View {
             .fullScreenCover(item: $openedBook) { book in
                 ReaderView(book: book.descriptor)
             }
-            // 兜底入口：某些路径下 SwiftUI 仍会收到 onOpenURL。
-            // 与 AppDelegate 的通知可能重复触发，用集合去重。
-            .onOpenURL { url in
-                Diagnostics.log("LibraryView: onOpenURL \(url.lastPathComponent)")
-                guard url.isFileURL else { return }
-                let originalName = url.lastPathComponent
-                let staged = try? StageFile.copyToStaging(url)
-                guard let staged else { return }
-                Task {
-                    await importStagedDocument(
-                        OpenDocumentPayload(url: staged, originalName: originalName)
-                    )
-                }
-            }
-            // 处理由 AppDelegate 转发的文件（见 ModuReaderApp）
-            .onReceive(
-                NotificationCenter.default.publisher(for: .moduOpenDocument)
-            ) { notification in
-                guard let payload = notification.object as? OpenDocumentPayload else {
-                    Diagnostics.log("LibraryView: 收到通知但 payload 类型不符")
-                    return
-                }
-                Task {
-                    await importStagedDocument(payload)
-                }
+            // 消费 AppContainer 里的待导入队列。
+            //
+            // onOpenURL 与 AppDelegate 都把文件投到 appContainer.pendingImports，
+            // 这里统一处理。用 task(id:) 而非 onReceive：
+            // 后者依赖通知时序，冷启动时订阅者可能尚未注册。
+            //
+            // id 用 count：队列变化会重启任务，从而立刻消费新文件。
+            .task(id: appContainer.pendingImports.count) {
+                await drainPendingImports()
             }
             .overlay(alignment: .top) {
                 if importingCount > 0 {
@@ -292,6 +276,14 @@ struct LibraryView: View {
         Task {
             await importFiles(staged, stagingFailures: stagingFailures)
             importingCount = 0
+        }
+    }
+
+    /// 处理队列中的全部待导入文件。
+    private func drainPendingImports() async {
+        while let payload = appContainer.dequeuePendingImport() {
+            Diagnostics.log("LibraryView: 处理待导入 \(payload.originalName)")
+            await importStagedDocument(payload)
         }
     }
 

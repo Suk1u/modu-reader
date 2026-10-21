@@ -35,6 +35,18 @@ struct ModuReaderApp: App {
                 .environment(appContainer)
                 .modelContainer(container)
                 .preferredColorScheme(appContainer.appearanceOverride)
+                // onOpenURL 必须挂在 Scene 的最外层。
+                //
+                // iOS 26+ 强制 scene 生命周期：即使 Info.plist 没有
+                // UIApplicationSceneManifest，系统也会走 scene(_:openURLContexts:)，
+                // 而 application(_:open:options:) 不会被调用。
+                // SwiftUI 把它桥接成 onOpenURL，但只在「当前活跃的视图」上触发。
+                // 挂在 LibraryView（TabView 的子视图）里时，如果 App 启动后
+                // 还没切到书架 Tab，或视图尚未完成首帧，回调会被丢弃。
+                .onOpenURL { url in
+                    Diagnostics.log("RootView: onOpenURL \(url.lastPathComponent)")
+                    appContainer.handleIncomingFile(url)
+                }
         }
     }
 }
