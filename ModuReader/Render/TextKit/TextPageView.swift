@@ -103,8 +103,8 @@ final class TextPageView: UIView {
             layoutWidth = width
             textContainer.size = CGSize(width: width, height: Self.layoutHeightLimit)
             contentStorage.attributedString = chapterText
-            layoutManager.invalidateLayout(for: contentStorage.documentRange)
-            layoutManager.ensureLayout(for: contentStorage.documentRange)
+            // 不调 ensureLayout(documentRange)：那会排完整个章节。
+            // TextKit 在 enumerateTextLayoutFragments / draw 时会按需布局。
         }
 
         setNeedsDisplay()
@@ -118,7 +118,6 @@ final class TextPageView: UIView {
         mutable.addAttribute(.foregroundColor, value: color, range: full)
         contentStorage.attributedString = mutable
         layoutManager.invalidateLayout(for: contentStorage.documentRange)
-        layoutManager.ensureLayout(for: contentStorage.documentRange)
         setNeedsDisplay()
     }
 
@@ -137,14 +136,29 @@ final class TextPageView: UIView {
 
         let visibleBottom = pageYOffset + bounds.height
 
+        // 从本页首字符的位置开始枚举，而不是从文档开头。
+        // 长章节（10 万字）从 nil 开始会遍历前面所有 fragment，
+        // 每帧都做一遍会明显拖慢翻页。
+        let startLocation: (any NSTextLocation)? = {
+            guard pageRange.location > 0,
+                  let location = contentStorage.location(
+                    contentStorage.documentRange.location,
+                    offsetBy: pageRange.location
+                  ) else {
+                return contentStorage.documentRange.location
+            }
+            return location
+        }()
+
         layoutManager.enumerateTextLayoutFragments(
-            from: nil,
+            from: startLocation,
             options: [.ensuresLayout]
         ) { fragment in
             let frame = fragment.layoutFragmentFrame
 
-            // 完全在可视区外的 fragment 跳过
+            // 在可视区上方（因起点略有回退）的 fragment 跳过绘制
             if frame.maxY < pageYOffset { return true }
+            // 超出可视区底部 → 停止枚举
             if frame.minY > visibleBottom { return false }
 
             fragment.draw(at: frame.origin, in: context)

@@ -57,7 +57,15 @@ enum Paginator {
         let pageWidth = max(1, profile.contentWidth)
         let pageHeight = max(1, profile.contentHeight)
 
-        // 建立整章排版栈。容器高度极大 → 一次排完，不做分页。
+        // 建立整章排版栈。
+        //
+        // 容器高度设为极大值，让整章在一个容器内连续排版，
+        // 这样行的 Y 坐标是连续的绝对坐标，分页只需按页高切分。
+        //
+        // 注意：不能对 documentRange 调 ensureLayout —— 那会强制布局全文，
+        // 10 万字章节实测耗时 13 秒。改为按需布局：
+        // 枚举 fragment 时 TextKit 会自动布局到当前枚举位置，
+        // 遇到超出页高的行就停止，无需排完全文。
         let contentStorage = NSTextContentStorage()
         contentStorage.attributedString = attributedText
 
@@ -75,25 +83,11 @@ enum Paginator {
 
         contentStorage.addTextLayoutManager(layoutManager)
 
-        // 强制完成整章布局，保证后续枚举到真实几何
-        layoutManager.ensureLayout(for: contentStorage.documentRange)
-
-        let lines = collectLines(
+        // 边枚举边切页：一次遍历同时完成「取行几何」与「按页高分组」，
+        // 避免先收集全部行（那等价于排完全文）。
+        let slices = paginateInOnePass(
             layoutManager: layoutManager,
             contentStorage: contentStorage,
-            totalLength: length
-        )
-
-        guard !lines.isEmpty else {
-            return PaginatedChapter(
-                chapterIndex: chapterIndex,
-                characterCount: length,
-                slices: [PageSlice(range: NSRange(location: 0, length: length), pageIndex: 0)]
-            )
-        }
-
-        let slices = groupIntoPages(
-            lines: lines,
             pageHeight: pageHeight,
             totalLength: length
         )
@@ -128,73 +122,16 @@ enum Paginator {
         )
     }
 
-    // MARK: - 行信息收集
+    // MARK: - 单遍分页
 
-    /// 一行的排版信息。
-    private struct LineInfo {
-        /// 该行在源文本中的字符区间。
-        var range: NSRange
-        /// 该行顶部的绝对 Y 坐标（相对排版起点）。
-        var minY: CGFloat
-        /// 该行底部绝对 Y 坐标。
-        var maxY: CGFloat
-    }
-
-    /// 枚举全部行，记录字符区间与绝对 Y 坐标。
+    /// 边枚举行边切页。
     ///
-    /// 用「fragment 的 Y + 行相对 fragment 的 Y」得到绝对坐标：
-    /// `textLineFragments[i].typographicBounds.origin` 是相对
-    /// 所属 fragment 的偏移，不是相对文档的。
-    private static func collectLines(
+    /// 一次遍历同时完成「取行几何」与「按页高分组」。
+    /// 这样 TextKit 只会按需布局到当前枚举位置，
+    /// 不会像 `ensureLayout(for: documentRange)` 那样排完全文。
+    private static func paginateInOnePass(
         layoutManager: NSTextLayoutManager,
         contentStorage: NSTextContentStorage,
-        totalLength: Int
-    ) -> [LineInfo] {
-        var lines: [LineInfo] = []
-        let documentStart = contentStorage.documentRange.location
-
-        layoutManager.enumerateTextLayoutFragments(
-            from: nil,
-            options: [.ensuresLayout]
-        ) { fragment in
-            let fragmentFrame = fragment.layoutFragmentFrame
-            let fragmentTop = fragmentFrame.minY
-
-            for line in fragment.textLineFragments {
-                let bounds = line.typographicBounds
-                let lineTop = fragmentTop + bounds.minY
-                let lineBottom = lineTop + bounds.height
-                let range = line.characterRange
-
-                // 过滤越界与空行
-                guard range.location >= 0,
-                      range.length >= 0,
-                      range.location + range.length <= totalLength else {
-                    continue
-                }
-                guard bounds.height > 0 else { continue }
-
-                lines.append(
-                    LineInfo(range: range, minY: lineTop, maxY: lineBottom)
-                )
-            }
-
-            return true
-        }
-
-        return lines
-    }
-
-    // MARK: - 切页
-
-    /// 按页高把行分组为页。
-    ///
-    /// 切分规则：
-    /// - 累积行高，超过页高时开新页
-    /// - 单行本身超过页高（超大字号 / 巨图）时单独成页，防止死循环
-    /// - 页的 `yOffset` 取该页第一行的顶部 Y，渲染时据此平移
-    private static func groupIntoPages(
-        lines: [LineInfo],
         pageHeight: CGFloat,
         totalLength: Int
     ) -> [PageSlice] {
@@ -203,26 +140,61 @@ enum Paginator {
 
         /// 当前页在源文本中的起始偏移。
         ///
-        /// 关键：始终用「上一页结束位置」作为下一页起点，
-        /// 而不是下一行首字符的位置。
-        /// TextKit 2 的 `NSTextLineFragment.characterRange` 不含行尾换行符，
-        /// 直接用行起点会让换行符落在任何页之外，造成区间断裂。
+        /// 始终用「上一页结束位置」作为下一页起点：
+        /// TextKit 2 的行 characterRange 不含行尾换行符，
+        /// 若用下一行起点会让换行符落在任何页之外，造成区间断裂。
         var pageStart = 0
-        /// 当前页首行的绝对 Y。
         var pageTop: CGFloat = 0
-        /// 是否已开始记录当前页。
         var pageOpen = false
+        var reachedEnd = false
 
-        for line in lines {
-            let lineHeight = line.maxY - line.minY
-            let lineEnd = line.range.location + line.range.length
+        layoutManager.enumerateTextLayoutFragments(
+            from: nil,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let fragmentTop = fragment.layoutFragmentFrame.minY
 
-            if !pageOpen {
-                pageOpen = true
-                pageTop = line.minY
+            for line in fragment.textLineFragments {
+                let bounds = line.typographicBounds
+                guard bounds.height > 0 else { continue }
 
-                // 单行超过整页：独占一页
-                if lineHeight > pageHeight {
+                let lineTop = fragmentTop + bounds.minY
+                let lineBottom = lineTop + bounds.height
+                let lineRange = line.characterRange
+
+                guard lineRange.location >= 0,
+                      lineRange.location + lineRange.length <= totalLength else {
+                    continue
+                }
+
+                let lineEnd = lineRange.location + lineRange.length
+
+                // 开始一页
+                if !pageOpen {
+                    pageOpen = true
+                    pageTop = lineTop
+                }
+
+                // 这一行放不下 → 结束当前页
+                if lineBottom - pageTop > pageHeight, lineRange.location > pageStart {
+                    let end = min(totalLength, lineRange.location)
+                    if end > pageStart {
+                        slices.append(
+                            PageSlice(
+                                range: NSRange(location: pageStart, length: end - pageStart),
+                                pageIndex: pageIndex,
+                                yOffset: pageTop
+                            )
+                        )
+                        pageIndex += 1
+                        pageStart = end
+                    }
+                    // 开启新页
+                    pageTop = lineTop
+                }
+
+                // 单行超过整页：独占一页，防止死循环
+                if lineBottom - lineTop > pageHeight {
                     let end = min(totalLength, lineEnd)
                     if end > pageStart {
                         slices.append(
@@ -233,50 +205,23 @@ enum Paginator {
                             )
                         )
                         pageIndex += 1
+                        pageStart = end
                     }
-                    pageStart = end
                     pageOpen = false
-                }
-                continue
-            }
-
-            // 这一行放不下 → 结束当前页
-            if line.maxY - pageTop > pageHeight {
-                let end = min(totalLength, line.range.location)
-                if end > pageStart {
-                    slices.append(
-                        PageSlice(
-                            range: NSRange(location: pageStart, length: end - pageStart),
-                            pageIndex: pageIndex,
-                            yOffset: pageTop
-                        )
-                    )
-                    pageIndex += 1
-                    pageStart = end
+                    continue
                 }
 
-                // 开启新页
-                pageTop = line.minY
-                if lineHeight > pageHeight {
-                    let soloEnd = min(totalLength, lineEnd)
-                    if soloEnd > pageStart {
-                        slices.append(
-                            PageSlice(
-                                range: NSRange(location: pageStart, length: soloEnd - pageStart),
-                                pageIndex: pageIndex,
-                                yOffset: pageTop
-                            )
-                        )
-                        pageIndex += 1
-                    }
-                    pageStart = soloEnd
-                    pageOpen = false
+                // 推进到本章末尾时停止枚举
+                if lineEnd >= totalLength {
+                    reachedEnd = true
+                    return false
                 }
-                continue
             }
+
+            return true
         }
 
-        // 收尾：剩余文本全部归入最后一页
+        // 收尾：剩余文本归入最后一页
         if pageStart < totalLength {
             slices.append(
                 PageSlice(
@@ -287,17 +232,7 @@ enum Paginator {
             )
         }
 
-        // 兜底
-        if slices.isEmpty, totalLength > 0 {
-            slices.append(
-                PageSlice(
-                    range: NSRange(location: 0, length: totalLength),
-                    pageIndex: 0,
-                    yOffset: 0
-                )
-            )
-        }
-
+        _ = reachedEnd
         return slices
     }
 }
