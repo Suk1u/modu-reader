@@ -80,6 +80,10 @@ final class ImportService {
         }
 
         // 4. 复制到沙盒
+        //
+        // 沙盒内统一命名为 source.<ext>：原始文件名可能含路径分隔符、
+        // 控制字符或超长 UTF-8，直接用作路径不安全。
+        // 书名在解析时通过 displayTitle 单独传入，不受改名影响。
         let bookID = UUID()
         try fileStore.prepareBookDirectory(for: bookID)
 
@@ -101,6 +105,8 @@ final class ImportService {
             parsed = try await parser.parse(
                 url: destination,
                 bookID: bookID,
+                // 用导入时的原始文件名推导书名，不依赖沙盒内的副本名
+                displayTitle: TextPublicationParser.deriveTitle(from: url),
                 forcedEncoding: forcedEncoding
             )
         } catch {

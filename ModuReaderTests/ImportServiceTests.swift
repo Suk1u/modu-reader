@@ -152,6 +152,32 @@ struct ImportServiceTests {
         #expect(entries.isEmpty)
     }
 
+    @Test("书名取自原始文件名，而不是沙盒副本名")
+    func titleFromOriginalFileName() async throws {
+        let (service, _, context, _) = try makeEnvironment()
+        let text = """
+        第一章 甲
+        内容。
+
+        第二章 乙
+        内容。
+
+        第三章 丙
+        内容。
+        """
+        let url = try writeTempFile(text, ext: "txt")
+
+        let result = try await service.importFile(at: url)
+
+        // 沙盒内副本叫 source.txt，但书名必须来自原始文件名
+        #expect(result.title != "source")
+        #expect(result.title.hasPrefix("ModuSource-"))
+
+        let books = try context.fetch(FetchDescriptor<BookEntity>())
+        #expect(books[0].title != "source")
+        #expect(books[0].title.hasPrefix("ModuSource-"))
+    }
+
     @Test("书名从文件名推导并清理站点后缀")
     func titleDerivation() {
         let cases: [(String, String)] = [

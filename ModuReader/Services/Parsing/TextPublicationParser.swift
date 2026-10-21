@@ -36,10 +36,12 @@ struct TextPublicationParser {
     /// - Parameters:
     ///   - url: 已复制到沙盒内的源文件。
     ///   - bookID: 书籍 UUID。
+    ///   - displayTitle: 书名。为 nil 时从文件名推导。
     ///   - forcedEncoding: 用户手动指定的编码（为 nil 时自动探测）。
     func parse(
         url: URL,
         bookID: UUID,
+        displayTitle: String? = nil,
         forcedEncoding: String.Encoding? = nil
     ) async throws -> ParsedTextPublication {
         let data = try Data(contentsOf: url)
@@ -100,7 +102,7 @@ struct TextPublicationParser {
         let index = ChapterIndex(chapters: records, totalCharacters: globalStart)
         try fileStore.writeIndex(index, for: bookID)
 
-        let title = Self.deriveTitle(from: url)
+        let title = displayTitle ?? Self.deriveTitle(from: url)
         let metadata = PublicationMetadata(
             title: title,
             language: "zh",
