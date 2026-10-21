@@ -35,7 +35,11 @@ struct ZipArchiveTests {
         guard status == Z_OK else { return nil }
         defer { zlib.deflateEnd(&stream) }
 
-        var output = Data(count: max(64, data.count + data.count / 2 + 64))
+        // 先算好容量，避免在 withUnsafeMutableBytes 闭包里再读 output.count
+        // （那会造成对 output 的独占访问冲突）
+        let capacity = max(64, data.count + data.count / 2 + 64)
+        var output = Data(count: capacity)
+
         let written: Int? = data.withUnsafeBytes { inputBuffer -> Int? in
             guard let inputPointer = inputBuffer.bindMemory(to: Bytef.self).baseAddress else {
                 return nil
@@ -47,7 +51,7 @@ struct ZipArchiveTests {
                 stream.next_in = UnsafeMutablePointer(mutating: inputPointer)
                 stream.avail_in = uInt(data.count)
                 stream.next_out = outputPointer
-                stream.avail_out = uInt(output.count)
+                stream.avail_out = uInt(capacity)
                 status = zlib.deflate(&stream, Z_FINISH)
                 guard status == Z_STREAM_END else { return nil }
                 return Int(stream.total_out)
