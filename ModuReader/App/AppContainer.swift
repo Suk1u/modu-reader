@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import UIKit
 
 /// 依赖注入根。
 @Observable
@@ -49,6 +50,29 @@ final class AppContainer {
             self.fileStore = (try? FileStore(rootURL: temp)) ?? FileStore.fallback
         }
         self.pageCache = try? PageIndexCache()
+
+        Self.logStartupDiagnostics(fileStore: fileStore, pageCache: pageCache)
+    }
+
+    /// 启动自检。把关键环境写入诊断日志，便于用户反馈问题。
+    private static func logStartupDiagnostics(
+        fileStore: FileStore,
+        pageCache: PageIndexCache?
+    ) {
+        Diagnostics.log("=== ModuReader 启动 ===")
+        Diagnostics.log("版本: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
+        Diagnostics.log("系统: \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
+        Diagnostics.log("设备: \(UIDevice.current.model)")
+        Diagnostics.log("书籍目录: \(fileStore.rootURL.path)")
+        Diagnostics.log("分页缓存: \(pageCache == nil ? "不可用" : "就绪")")
+
+        let documentTypes = Bundle.main.infoDictionary?["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
+        Diagnostics.log("文档类型声明: \(documentTypes.count) 项")
+        for type in documentTypes {
+            let name = type["CFBundleTypeName"] as? String ?? "?"
+            let types = type["LSItemContentTypes"] as? [String] ?? []
+            Diagnostics.log("  - \(name): \(types.joined(separator: ", "))")
+        }
     }
 
     /// 为当前 ModelContext 构建导入服务。

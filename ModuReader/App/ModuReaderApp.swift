@@ -9,6 +9,9 @@ import SwiftData
 @main
 struct ModuReaderApp: App {
 
+    /// 处理系统通过文档类型打开本 App 的入口。
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     private let container: ModelContainer
     private let appContainer: AppContainer
 

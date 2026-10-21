@@ -29,8 +29,12 @@ enum StageFile {
     /// - Returns: 暂存副本的 URL。调用方负责在使用后删除。
     /// - Throws: 复制失败时抛出，附带具体原因。
     static func copyToStaging(_ url: URL) throws -> URL {
-        // 安全范围：返回 false 不代表失败（沙盒内 URL 不需要授权）
+        Diagnostics.log("StageFile: start \(url.lastPathComponent)")
+
+        // 安全范围：asCopy=true 的 URL 已在沙盒内，返回 false 属正常。
+        // 仍然调用一次，兼容 openURL 传入的外部 URL。
         let scoped = url.startAccessingSecurityScopedResource()
+        Diagnostics.log("StageFile: securityScope=\(scoped)")
         defer {
             if scoped {
                 url.stopAccessingSecurityScopedResource()
@@ -39,7 +43,9 @@ enum StageFile {
 
         // 先确认可读。iCloud 占位符在这里会触发同步下载，
         // 因此可能耗时数秒 —— 这是不可避免的，用户选完文件本就期望等待。
-        guard FileManager.default.isReadableFile(atPath: url.path) else {
+        let readable = FileManager.default.isReadableFile(atPath: url.path)
+        Diagnostics.log("StageFile: readable=\(readable)")
+        guard readable else {
             throw StageError.notReadable(url.lastPathComponent)
         }
 
@@ -60,6 +66,7 @@ enum StageFile {
         do {
             try FileManager.default.copyItem(at: url, to: destination)
         } catch {
+            Diagnostics.log("StageFile: copy failed \(error.localizedDescription)")
             throw StageError.copyFailed(
                 url.lastPathComponent,
                 error.localizedDescription
@@ -69,6 +76,7 @@ enum StageFile {
         // 校验复制结果：大小为 0 说明源文件是未下载的 iCloud 占位符
         let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
         let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+        Diagnostics.log("StageFile: copied size=\(size)")
         if size == 0 {
             try? FileManager.default.removeItem(at: destination)
             throw StageError.emptyFile(url.lastPathComponent)

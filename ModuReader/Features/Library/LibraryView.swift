@@ -15,7 +15,6 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \BookEntity.lastOpenedAt, order: .reverse) private var books: [BookEntity]
 
-    @State private var isImporting = false
     @State private var importError: String?
     @State private var importSuccessMessage: String?
     @State private var importingCount = 0
@@ -76,19 +75,20 @@ struct LibraryView: View {
                     .accessibilityLabel("排序方式")
                 }
             }
-            .fileImporter(
-                isPresented: $isImporting,
-                allowedContentTypes: FormatSniffer.supportedContentTypes,
-                allowsMultipleSelection: true
-            ) { result in
-                handleImport(result)
-            }
             .fullScreenCover(item: $openedBook) { book in
                 ReaderView(book: book.descriptor)
             }
-            // 从 Files App、分享面板、「用其他应用打开」进入时，
-            // 系统通过 openURL 把文件交给本 App（Info.plist 已声明 CFBundleDocumentTypes）。
+            // 系统通过 URL scheme 打开时的入口（Files 里点文件、分享面板）
             .onOpenURL { url in
+                Task {
+                    await importFromOpenURL(url)
+                }
+            }
+            // 处理由 AppDelegate 转发的文件（见 ModuReaderApp）
+            .onReceive(
+                NotificationCenter.default.publisher(for: .moduOpenDocument)
+            ) { notification in
+                guard let url = notification.object as? URL else { return }
                 Task {
                     await importFromOpenURL(url)
                 }
@@ -168,10 +168,19 @@ struct LibraryView: View {
         } description: {
             Text("导入 TXT 或 Markdown 文件开始阅读。")
         } actions: {
-            Button("导入书籍") {
-                isImporting = true
+            VStack(spacing: 12) {
+                Button {
+                    presentImporter()
+                } label: {
+                    Label("导入书籍", systemImage: "plus")
+                        .frame(minWidth: 160)
+                }
+                .buttonStyle(.glassProminent)
+
+                Text("支持 TXT、Markdown")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(.glassProminent)
         }
     }
 
@@ -209,13 +218,20 @@ struct LibraryView: View {
     // MARK: - Actions
 
     /// 呈现文件选择器。
-    ///
-    /// 延迟一拍再置位 `isImporting`：如果当前有菜单/弹出层正在关闭，
-    /// 立即呈现 sheet 会被系统丢弃。
     private func presentImporter() {
-        DispatchQueue.main.async {
-            isImporting = true
-        }
+        Diagnostics.log("LibraryView: presentImporter tapped")
+
+        // 直接走 UIKit 呈现，不依赖 SwiftUI 的 sheet 协调器。
+        // SwiftUI 的 .sheet / .fileImporter 在本工程的组合下出现过
+        // 「picker 不出现」或「回调不触发」且无任何可观测信号的问题。
+        ImportPresenter.present(
+            onPick: { urls in
+                handlePickedURLs(urls)
+            },
+            onCancel: {
+                Diagnostics.log("LibraryView: import cancelled")
+            }
+        )
     }
 
     private func open(_ book: BookEntity) {
@@ -229,51 +245,42 @@ struct LibraryView: View {
         try? service.deleteBook(book)
     }
 
-    private func handleImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard !urls.isEmpty else { return }
-            importingCount = urls.count
+    private func handlePickedURLs(_ urls: [URL]) {
+        Diagnostics.log("LibraryView: handlePickedURLs count=\(urls.count)")
+        guard !urls.isEmpty else { return }
+        importingCount = urls.count
 
-            // 关键：在回调内**同步**复制到沙盒临时目录。
-            //
-            // fileImporter 的 completion 在 sheet dismiss 之后才执行，
-            // 此时 security scope 可能已经失效。若在异步任务里再去读原 URL，
-            // 会得到「文件不存在 / 无权限」，而错误又被 SwiftUI 丢弃，
-            // 表现就是「点了打开没反应」。
-            //
-            // 同步复制虽然会占用主线程一小段时间，但这是唯一可靠的方式。
-            // 单个文件复制 5MB 约 10~30ms，可以接受。
-            var staged: [(url: URL, originalName: String)] = []
-            var stagingFailures: [String] = []
+        // 关键：在回调内**同步**复制到沙盒暂存区。
+        //
+        // picker 返回的 URL 带安全范围授权，该授权与 picker 生命周期绑定。
+        // 若在异步任务里才去读原 URL，授权可能已失效，
+        // 得到「文件不存在 / 无权限」，而错误又可能被静默丢弃。
+        //
+        // 同步复制占用主线程很短（5MB 约 10~30ms），是可靠性的必要代价。
+        var staged: [(url: URL, originalName: String)] = []
+        var stagingFailures: [String] = []
 
-            for url in urls {
-                let originalName = url.lastPathComponent
-                do {
-                    let temp = try StageFile.copyToStaging(url)
-                    staged.append((temp, originalName))
-                } catch {
-                    stagingFailures.append("\(originalName)：\(error.localizedDescription)")
-                }
+        for url in urls {
+            let originalName = url.lastPathComponent
+            do {
+                let temp = try StageFile.copyToStaging(url)
+                staged.append((temp, originalName))
+            } catch {
+                stagingFailures.append("\(originalName)：\(error.localizedDescription)")
             }
+        }
 
-            if staged.isEmpty {
-                importingCount = 0
-                importError = stagingFailures.isEmpty
-                    ? "未能读取所选文件。"
-                    : stagingFailures.joined(separator: "\n")
-                return
-            }
+        if staged.isEmpty {
+            importingCount = 0
+            importError = stagingFailures.isEmpty
+                ? "未能读取所选文件。"
+                : stagingFailures.joined(separator: "\n")
+            return
+        }
 
-            Task {
-                await importFiles(staged, stagingFailures: stagingFailures)
-                importingCount = 0
-            }
-        case .failure(let error):
-            // 用户主动取消不算错误，不弹窗
-            let nsError = error as NSError
-            if nsError.code == NSUserCancelledError { return }
-            importError = error.localizedDescription
+        Task {
+            await importFiles(staged, stagingFailures: stagingFailures)
+            importingCount = 0
         }
     }
 

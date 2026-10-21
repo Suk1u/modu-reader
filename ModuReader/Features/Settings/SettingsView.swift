@@ -37,6 +37,20 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("诊断") {
+                    NavigationLink {
+                        DiagnosticsView()
+                    } label: {
+                        Label("诊断日志", systemImage: "doc.text.magnifyingglass")
+                    }
+
+                    Button {
+                        StageFile.purgeAll()
+                    } label: {
+                        Label("清理导入暂存文件", systemImage: "trash")
+                    }
+                }
+
                 Section("关于") {
                     LabeledContent("版本", value: appVersion)
                     LabeledContent("支持的格式", value: "TXT、Markdown")
