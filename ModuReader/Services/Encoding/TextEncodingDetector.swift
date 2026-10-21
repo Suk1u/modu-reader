@@ -40,6 +40,12 @@ enum TextEncodingDetector {
 
     /// 中文判定阈值：中文字符占比需高于此值。
     static let chineseCharacterRatioThreshold = 0.15
+
+    /// 日文判定阈值：假名占比需高于此值。
+    ///
+    /// 取 3%：正常日文假名占比通常在 30% 以上，而中文文本几乎为 0。
+    /// 阈值定得低，是为了兼容以汉字为主的汉文训读体日文。
+    static let kanaRatioThreshold = 0.03
     /// 控制字符占比上限。
     static let controlCharacterRatioLimit = 0.01
 
@@ -178,7 +184,7 @@ enum TextEncodingDetector {
 
     private static func detectUTF16WithoutBOM(probe: Data, data: Data) -> EncodingDetectionResult? {
         let bytes = [UInt8](probe)
-        guard bytes.count >= 16 else { return nil }
+        guard bytes.count >= 16, bytes.count % 2 == 0 else { return nil }
 
         var zeroAtEven = 0
         var zeroAtOdd = 0
@@ -191,13 +197,19 @@ enum TextEncodingDetector {
         let evenRatio = Double(zeroAtEven) / Double(half)
         let oddRatio = Double(zeroAtOdd) / Double(half)
 
+        // 判据：某一侧的 0 字节密度显著高于另一侧，且另一侧几乎无 0。
+        //
+        // 阈值取 0.20 而非 0.30：换行符（0x000A）、空格（0x0020）
+        // 等低字节也会贡献 0，实际密度通常在 0.3~0.5 之间；
+        // 但短文本或含较多双字节字符时可能降到 0.2 出头。
+        // 同时要求另一侧 < 0.02，确保方向明确。
         let encoding: String.Encoding
         let name: String
-        if oddRatio > 0.3 && evenRatio < 0.05 {
-            // ASCII 字符高字节为 0，位于奇数位 → UTF-16LE
+        if oddRatio > 0.20 && evenRatio < 0.02 {
+            // ASCII 字符的高字节为 0，位于奇数位 → UTF-16LE
             encoding = .utf16LittleEndian
             name = "UTF-16 LE"
-        } else if evenRatio > 0.3 && oddRatio < 0.05 {
+        } else if evenRatio > 0.20 && oddRatio < 0.02 {
             encoding = .utf16BigEndian
             name = "UTF-16 BE"
         } else {
@@ -206,6 +218,13 @@ enum TextEncodingDetector {
 
         guard let text = String(data: data, encoding: encoding) else { return nil }
         guard !text.contains("\u{FFFD}") else { return nil }
+
+        // 二次校验：解出来的文本控制字符不能过多，
+        // 否则可能是恰好含大量 0 字节的二进制文件。
+        let sample = String(text.prefix(2048))
+        let metrics = measure(sample)
+        guard metrics.controlRatio < controlCharacterRatioLimit else { return nil }
+
         return EncodingDetectionResult(
             encoding: encoding,
             displayName: name,
@@ -245,7 +264,15 @@ enum TextEncodingDetector {
             CJKCandidate(encoding: encoding(from: .EUC_JP), displayName: "EUC-JP", script: .kana),
         ]
 
-        var best: (candidate: CJKCandidate, text: String, score: Double)?
+        /// 单个候选的评分结果。
+        struct Scored {
+            var candidate: CJKCandidate
+            var text: String
+            var metrics: TextMetrics
+        }
+
+        var scored: [Scored] = []
+        scored.reserveCapacity(candidates.count)
 
         for candidate in candidates {
             guard let text = String(data: data, encoding: candidate.encoding) else { continue }
@@ -257,35 +284,46 @@ enum TextEncodingDetector {
             let metrics = measure(sample)
             guard metrics.controlRatio < controlCharacterRatioLimit else { continue }
 
-            let score: Double
+            // 目标文字占比过低 → 该编码解出来的不是这种语言
             switch candidate.script {
             case .han:
-                score = metrics.hanRatio
+                guard metrics.hanRatio > chineseCharacterRatioThreshold else { continue }
             case .kana:
-                score = metrics.kanaRatio
+                guard metrics.kanaRatio > kanaRatioThreshold else { continue }
             }
 
-            // 目标文字占比过低，说明这个编码解出来的不是该语言
-            let threshold = candidate.script == .kana ? 0.05 : chineseCharacterRatioThreshold
-            guard score > threshold else { continue }
-
-            // 日文编码额外要求：假名占比必须高于汉字占比，
-            // 否则一篇中文被 Shift-JIS 解出少量假名时会误判。
-            if candidate.script == .kana {
-                guard metrics.kanaRatio > metrics.hanRatio else { continue }
-            }
-
-            if best == nil || score > best!.score {
-                best = (candidate, text, score)
-            }
+            scored.append(Scored(candidate: candidate, text: text, metrics: metrics))
         }
 
-        guard let best else { return nil }
+        guard !scored.isEmpty else { return nil }
+
+        // 决策顺序（关键）：
+        // 1. 若存在「假名密度足够高」的日文候选，优先判为日文。
+        //    中文文本几乎不含假名，一旦出现成规模的假名，就说明原文是日文。
+        //    这一步必须在中文候选之前：GB18030 也能把日文解成看似合理的中文。
+        // 2. 否则在中文候选中取汉字密度最高的。
+        if let japanese = scored
+            .filter({ $0.candidate.script == .kana })
+            .max(by: { $0.metrics.kanaRatio < $1.metrics.kanaRatio }) {
+            return EncodingDetectionResult(
+                encoding: japanese.candidate.encoding,
+                displayName: japanese.candidate.displayName,
+                text: japanese.text,
+                hasReplacementCharacters: false,
+                isFallback: false
+            )
+        }
+
+        guard let chinese = scored
+            .filter({ $0.candidate.script == .han })
+            .max(by: { $0.metrics.hanRatio < $1.metrics.hanRatio }) else {
+            return nil
+        }
 
         return EncodingDetectionResult(
-            encoding: best.candidate.encoding,
-            displayName: best.candidate.displayName,
-            text: best.text,
+            encoding: chinese.candidate.encoding,
+            displayName: chinese.candidate.displayName,
+            text: chinese.text,
             hasReplacementCharacters: false,
             isFallback: false
         )

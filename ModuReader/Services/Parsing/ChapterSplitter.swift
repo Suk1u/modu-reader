@@ -33,6 +33,9 @@ enum ChapterSplitter {
     /// 判定为「有章节」的最少章节数。
     static let minChaptersToTrust = 3
 
+    /// 单章节标题允许出现在文件开头之前的字符数（BOM、空行等）。
+    static let leadingWhitespaceTolerance = 4
+
     // MARK: - Public
 
     /// 切分文本为章节区间。
@@ -74,11 +77,19 @@ enum ChapterSplitter {
         // - 主规则命中足够 → 用主规则
         // - 否则若数字列表候选 ≥ 20 → 用数字列表（典型如「1. 标题」式网文）
         // - 否则视为无章节
+        //
+        // 例外：即使只有一个章节标题，只要它出现在文件开头且全文很长，
+        // 仍按章节处理（单章超长时会被 splitOversizedChapters 二次分块）。
+        // 否则「一个标题 + 十几万字」的网文会被整本当单章，分页时一次性吃满内存。
         let candidates: [Candidate]
         if primaryCandidates.count >= minChaptersToTrust {
             candidates = primaryCandidates
         } else if numericCandidates.count >= numericListMinChapters {
             candidates = numericCandidates
+        } else if let single = primaryCandidates.first,
+                  single.location <= Self.leadingWhitespaceTolerance,
+                  ns.length > maxChapterCharacters {
+            candidates = [single]
         } else {
             return fallbackForWholeText(ns: ns)
         }
