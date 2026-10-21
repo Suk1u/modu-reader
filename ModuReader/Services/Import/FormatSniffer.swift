@@ -89,11 +89,26 @@ enum FormatSniffer {
         return .unknown
     }
 
-    /// 支持的导入扩展名（用于 `fileImporter`）。
+    /// 文件选择器允许的类型。
+    ///
+    /// 必须覆盖所有「扩展名存在但系统 UTI 不识别」的情况。
+    /// 例如 `.txt` 在部分系统上会被识别成 `public.plain-text`，
+    /// 而某些网文下载得到的 `.txt` 实际 MIME 是 `public.data`；
+    /// 若只用 `.plainText`，文件在选择器里会变灰不可选 —— 用户看到的就是「选了没反应」。
     static var supportedContentTypes: [UTType] {
-        var types: [UTType] = [.plainText, .text]
-        if let md = UTType(filenameExtension: "md") { types.append(md) }
-        if let epub = UTType(filenameExtension: "epub") { types.append(epub) }
+        var types: [UTType] = [
+            .plainText,
+            .text,
+            .data,          // 兜底：允许选择任何数据文件，导入后再按魔数判定
+        ]
+
+        let extensionTypes = ["txt", "text", "md", "markdown", "epub"]
+        for ext in extensionTypes {
+            if let type = UTType(filenameExtension: ext), !types.contains(type) {
+                types.append(type)
+            }
+        }
+
         return types
     }
 

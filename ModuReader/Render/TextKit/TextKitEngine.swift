@@ -55,6 +55,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
     // MARK: - State
 
     private let fileStore: FileStore
+    /// 分页缓存。为 nil 时退化为每次都重新分页（缓存目录不可写）。
+    private let pageCache: PageIndexCache?
     private var book: BookDescriptor?
     private var settings = ReaderSettings()
     private var totalCharacters: Int = 0
@@ -87,8 +89,9 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
     // MARK: - Init
 
-    init(fileStore: FileStore) {
+    init(fileStore: FileStore, pageCache: PageIndexCache? = nil) {
         self.fileStore = fileStore
+        self.pageCache = pageCache
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -271,6 +274,82 @@ final class TextKitEngine: UIViewController, RenderEngine {
         return ns.substring(with: slice.range)
     }
 
+    // MARK: - Search
+
+    /// 全书搜索。
+    ///
+    /// 逐章在后台队列扫描，每章之间检查取消状态。
+    /// 单章命中数上限 100 条，全书上限 500 条，防止超长书产生海量结果。
+    func search(_ query: String) async -> [SearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let bookID = book?.id else { return [] }
+
+        let chapterList = chapters
+        let fileStore = self.fileStore
+
+        return await withCheckedContinuation { continuation in
+            paginationQueue.async {
+                var results: [SearchResult] = []
+                let perChapterLimit = 100
+                let totalLimit = 500
+
+                for chapter in chapterList {
+                    if results.count >= totalLimit { break }
+                    if Task.isCancelled { break }
+
+                    guard let text = try? fileStore.readChapter(
+                        for: bookID,
+                        fileName: chapter.filePath
+                    ) else { continue }
+
+                    let ns = text as NSString
+                    var searchStart = 0
+                    var hitsInChapter = 0
+
+                    while searchStart < ns.length, hitsInChapter < perChapterLimit {
+                        let searchRange = NSRange(
+                            location: searchStart,
+                            length: ns.length - searchStart
+                        )
+                        let found = ns.range(
+                            of: trimmed,
+                            options: [.caseInsensitive, .diacriticInsensitive],
+                            range: searchRange
+                        )
+                        guard found.location != NSNotFound else { break }
+
+                        let context = Self.makeContext(text: ns, around: found)
+                        results.append(
+                            SearchResult(
+                                chapterIndex: chapter.id,
+                                chapterTitle: chapter.title,
+                                charOffset: found.location,
+                                context: context,
+                                matchedText: ns.substring(with: found)
+                            )
+                        )
+
+                        hitsInChapter += 1
+                        searchStart = found.location + max(1, found.length)
+                    }
+                }
+
+                continuation.resume(returning: results)
+            }
+        }
+    }
+
+    /// 截取匹配位置前后的上下文。
+    private static func makeContext(text: NSString, around range: NSRange, radius: Int = 24) -> String {
+        let start = max(0, range.location - radius)
+        let end = min(text.length, range.location + range.length + radius)
+        let raw = text.substring(with: NSRange(location: start, length: end - start))
+        // 折叠换行，避免列表行高跳动
+        return raw
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
     // MARK: - Chapter loading
 
     private func loadChapter(at index: Int) async throws {
@@ -279,12 +358,23 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let text = try fileStore.readChapter(for: book.id, fileName: chapter.filePath)
         let profile = currentProfile() ?? defaultProfile()
 
-        let pagination = await paginateOffMain(
-            text: text,
-            profile: profile,
-            textColor: settings.theme.text,
-            chapterIndex: index
-        )
+        // 缓存命中直接使用，避免重复分页（二次打开同一章应在 50ms 内）
+        let pagination: PaginatedChapter
+        if let cached = pageCache?.load(
+            bookID: book.id,
+            chapterIndex: index,
+            profile: profile
+        ) {
+            pagination = cached
+        } else {
+            pagination = await paginateOffMain(
+                text: text,
+                profile: profile,
+                textColor: settings.theme.text,
+                chapterIndex: index
+            )
+            pageCache?.store(pagination, bookID: book.id, profile: profile)
+        }
 
         currentChapterIndex = index
         currentChapterText = text

@@ -57,20 +57,29 @@ final class ImportService {
     /// - Returns: 导入结果。
     func importFile(at url: URL, forcedEncoding: String.Encoding? = nil) async throws -> ImportResult {
         // 1. 安全范围访问
-        let needsSecurityScope = url.startAccessingSecurityScopedResource()
+        //
+        // 注意：返回 false 不等于失败。沙盒内的 URL（例如从 openURL 传入的
+        // Inbox 副本）不需要安全范围，此时返回 false 但文件仍可读。
+        // 真正判断能否读取要靠下面的 isReadableFile 检查。
+        let scoped = url.startAccessingSecurityScopedResource()
         defer {
-            if needsSecurityScope {
+            if scoped {
                 url.stopAccessingSecurityScopedResource()
             }
         }
 
-        // 2. 嗅探格式
+        // 2. 可读性前置校验，给出明确错误而不是让后续操作静默失败
+        guard FileManager.default.isReadableFile(atPath: url.path) else {
+            throw ImportError.accessDenied
+        }
+
+        // 3. 嗅探格式
         let format = FormatSniffer.sniff(url: url)
         guard format.isSupportedInCurrentMilestone else {
             throw ImportError.unsupportedFormat(url.pathExtension.lowercased())
         }
 
-        // 3. 复制到沙盒
+        // 4. 复制到沙盒
         let bookID = UUID()
         try fileStore.prepareBookDirectory(for: bookID)
 
@@ -85,7 +94,7 @@ final class ImportService {
             throw ImportError.copyFailed(error.localizedDescription)
         }
 
-        // 4. 解析
+        // 5. 解析
         let parser = TextPublicationParser(fileStore: fileStore)
         let parsed: ParsedTextPublication
         do {
@@ -99,7 +108,7 @@ final class ImportService {
             throw ImportError.parseFailed(error.localizedDescription)
         }
 
-        // 5. 写入数据库
+        // 6. 写入数据库
         let entity = BookEntity(
             id: bookID,
             title: parsed.metadata.title,

@@ -50,17 +50,16 @@ struct LibraryView: View {
             .navigationTitle("书架")
             .searchable(text: $searchText, prompt: "搜索书名或作者")
             .toolbar {
+                // 直接按钮，不套 Menu。
+                // 菜单项点击后菜单需要先 dismiss，再呈现 sheet，
+                // 两者竞争会导致 fileImporter 偶尔完全不出现（表现为「点导入没反应」）。
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button {
-                            isImporting = true
-                        } label: {
-                            Label("导入书籍", systemImage: "plus")
-                        }
+                    Button {
+                        presentImporter()
                     } label: {
-                        Label("添加", systemImage: "plus")
+                        Label("导入书籍", systemImage: "plus")
                     }
-                    .accessibilityLabel("添加书籍")
+                    .accessibilityLabel("导入书籍")
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -85,6 +84,18 @@ struct LibraryView: View {
             }
             .fullScreenCover(item: $openedBook) { book in
                 ReaderView(book: book.descriptor)
+            }
+            // 从 Files App、分享面板、「用其他应用打开」进入时，
+            // 系统通过 openURL 把文件交给本 App（Info.plist 已声明 CFBundleDocumentTypes）。
+            .onOpenURL { url in
+                Task {
+                    await importFromOpenURL(url)
+                }
+            }
+            .overlay {
+                if importingCount > 0 {
+                    importingOverlay
+                }
             }
             .confirmationDialog(
                 "删除《\(bookToDelete?.title ?? "")》？",
@@ -115,6 +126,24 @@ struct LibraryView: View {
                 Text(importError ?? "")
             }
         }
+    }
+
+    /// 导入进度遮罩。导入大文件时用户能看到反馈，而不是以为没反应。
+    private var importingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.15)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text(importingCount == 1 ? "正在导入…" : "正在导入 \(importingCount) 个文件…")
+                    .font(.subheadline)
+            }
+            .padding(24)
+            .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        }
+        .transition(.opacity)
     }
 
     // MARK: - Subviews
@@ -165,6 +194,16 @@ struct LibraryView: View {
 
     // MARK: - Actions
 
+    /// 呈现文件选择器。
+    ///
+    /// 延迟一拍再置位 `isImporting`：如果当前有菜单/弹出层正在关闭，
+    /// 立即呈现 sheet 会被系统丢弃。
+    private func presentImporter() {
+        DispatchQueue.main.async {
+            isImporting = true
+        }
+    }
+
     private func open(_ book: BookEntity) {
         book.lastOpenedAt = Date()
         try? modelContext.save()
@@ -186,6 +225,19 @@ struct LibraryView: View {
             }
         case .failure(let error):
             importError = error.localizedDescription
+        }
+    }
+
+    /// 处理系统通过 openURL 传入的文件。
+    private func importFromOpenURL(_ url: URL) async {
+        importingCount = 1
+        defer { importingCount = 0 }
+
+        let service = appContainer.makeImportService(context: modelContext)
+        do {
+            _ = try await service.importFile(at: url)
+        } catch {
+            importError = "\(url.lastPathComponent)：\(error.localizedDescription)"
         }
     }
 

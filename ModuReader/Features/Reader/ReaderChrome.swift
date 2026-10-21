@@ -15,7 +15,7 @@ struct ReaderTopBar: View {
     let title: String
     let onBack: () -> Void
     let onOpenTOC: () -> Void
-    let onToggleChrome: () -> Void
+    let onOpenSearch: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
@@ -36,6 +36,14 @@ struct ReaderTopBar: View {
             }
             .accessibilityLabel("目录")
 
+            Button(action: onOpenSearch) {
+                Label("搜索", systemImage: "magnifyingglass")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("搜索全书")
+
             Spacer(minLength: 8)
 
             Text(title)
@@ -45,14 +53,6 @@ struct ReaderTopBar: View {
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 8)
-
-            Button(action: onToggleChrome) {
-                Label("隐藏工具栏", systemImage: "chevron.down")
-                    .labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
-            }
-            .accessibilityLabel("隐藏工具栏")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)

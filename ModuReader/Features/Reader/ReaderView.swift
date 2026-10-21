@@ -22,6 +22,7 @@ struct ReaderView: View {
     @State private var showChrome = false
     @State private var showTOC = false
     @State private var showSettings = false
+    @State private var showSearch = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -78,6 +79,16 @@ struct ReaderView: View {
                     .presentationDragIndicator(.visible)
             }
         }
+        .sheet(isPresented: $showSearch) {
+            if let session {
+                SearchPanel(session: session) { result in
+                    session.go(to: result)
+                    showChrome = false
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+        }
     }
 
     // MARK: - Chrome
@@ -95,11 +106,7 @@ struct ReaderView: View {
                         }
                     },
                     onOpenTOC: { showTOC = true },
-                    onToggleChrome: {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            showChrome = false
-                        }
-                    }
+                    onOpenSearch: { showSearch = true }
                 )
 
                 Spacer(minLength: 0)
@@ -119,7 +126,10 @@ struct ReaderView: View {
         let fileStore = appContainer.fileStore
         let settings = appContainer.globalSettings
 
-        let engine = TextKitEngine(fileStore: fileStore)
+        let engine = TextKitEngine(
+            fileStore: fileStore,
+            pageCache: appContainer.pageCache
+        )
         let session = ReaderSession(
             book: book,
             engine: engine,

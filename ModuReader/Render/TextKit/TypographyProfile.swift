@@ -92,6 +92,20 @@ struct TypographyProfile: Hashable, Sendable {
         self.language = language
     }
 
+    /// 文件名安全的缓存键哈希。
+    ///
+    /// `cacheKey` 含 `|` 与小数点，不能直接作文件名。
+    /// 这里用 FNV-1a 32 位哈希：足够短、无依赖、跨平台稳定
+    /// （不能用 `Hasher`，它每次进程启动的种子不同）。
+    var cacheKeyHash: String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in cacheKey.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        return String(format: "%08x", hash)
+    }
+
     /// 稳定的缓存键。
     var cacheKey: String {
         let parts: [String] = [

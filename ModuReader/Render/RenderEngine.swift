@@ -83,4 +83,39 @@ protocol RenderEngine: AnyObject {
 
     /// 当前章节序号。
     var currentChapterIndex: Int { get }
+
+    /// 在全书范围内搜索。
+    ///
+    /// 实现应在后台逐章扫描并支持取消（`Task.isCancelled`）。
+    /// 返回结果按阅读顺序排列。
+    func search(_ query: String) async -> [SearchResult]
+}
+
+/// 一条搜索结果。
+struct SearchResult: Identifiable, Hashable, Sendable {
+    let id: UUID
+    var chapterIndex: Int
+    var chapterTitle: String
+    /// 匹配处在该章内的字符偏移。
+    var charOffset: Int
+    /// 匹配位置前后各约 20 字的上下文，用于列表展示。
+    var context: String
+    /// 匹配到的原始文本。
+    var matchedText: String
+
+    init(
+        id: UUID = UUID(),
+        chapterIndex: Int,
+        chapterTitle: String,
+        charOffset: Int,
+        context: String,
+        matchedText: String
+    ) {
+        self.id = id
+        self.chapterIndex = chapterIndex
+        self.chapterTitle = chapterTitle
+        self.charOffset = charOffset
+        self.context = context
+        self.matchedText = matchedText
+    }
 }

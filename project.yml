@@ -58,6 +58,42 @@ targets:
         UIFileSharingEnabled: true
         UISupportsDocumentBrowser: false
         ITSAppUsesNonExemptEncryption: false
+        # 声明本 App 能打开的文档类型。
+        # 没有这一段，系统的「共享 → 用其他应用打开」不会列出本 App，
+        # Files App 里点击 .txt 也不会出现本 App。
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 纯文本
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+              - public.text
+              - net.daringfireball.markdown
+          - CFBundleTypeName: EPUB 电子书
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+          - CFBundleTypeName: 漫画压缩包
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.modu.comic-archive
+        # 自定义 UTI：CBZ / CBR / CB7 系统没有内置类型
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.modu.comic-archive
+            UTTypeDescription: 漫画压缩包
+            UTTypeConformsTo:
+              - public.data
+              - public.archive
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - cbz
+                - cbr
+                - cb7
+              public.mime-type:
+                - application/vnd.comicbook+zip
+                - application/x-cbr
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.modu.reader

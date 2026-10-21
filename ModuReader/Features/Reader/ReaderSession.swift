@@ -176,6 +176,31 @@ final class ReaderSession {
         }
     }
 
+    // MARK: - Search
+
+    /// 在全书范围搜索。
+    func search(_ query: String) async -> [SearchResult] {
+        await engine.search(query)
+    }
+
+    /// 跳转到一条搜索结果。
+    func go(to result: SearchResult) {
+        let chapter = engine.chapters[safe: result.chapterIndex]
+        let locator = Locator(
+            href: chapter?.filePath ?? "",
+            locations: Locations(
+                charOffset: result.charOffset,
+                page: nil
+            ),
+            text: TextQuote(highlight: result.matchedText)
+        )
+
+        Task {
+            await engine.go(to: locator, animated: false)
+            syncChapterState()
+        }
+    }
+
     // MARK: - Progress persistence
 
     private func loadSavedLocator() -> Locator? {

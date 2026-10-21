@@ -34,6 +34,9 @@ final class AppContainer {
     /// 全局阅读设置（跨书共享排版，主题与进度按书存）。
     var globalSettings: ReaderSettings = ReaderSettings()
 
+    /// 分页缓存。为 nil 时每次都重新分页（功能不受影响，只是变慢）。
+    let pageCache: PageIndexCache?
+
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
         do {
@@ -45,6 +48,7 @@ final class AppContainer {
                 .appendingPathComponent("ModuBooks", isDirectory: true)
             self.fileStore = (try? FileStore(rootURL: temp)) ?? FileStore.fallback
         }
+        self.pageCache = try? PageIndexCache()
     }
 
     /// 为当前 ModelContext 构建导入服务。
