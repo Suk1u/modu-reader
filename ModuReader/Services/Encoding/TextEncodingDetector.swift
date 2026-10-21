@@ -63,7 +63,16 @@ enum TextEncodingDetector {
             return bomResult
         }
 
-        // 2. UTF-8 严格校验
+        // 2. UTF-16 无 BOM 启发
+        //
+        // 必须早于 UTF-8 校验：纯 ASCII 文本编码成 UTF-16LE 后，
+        // 字节流形如 `43 00 68 00 ...`，这是**合法的 UTF-8**（NUL 是合法码点），
+        // 会被 UTF-8 校验直接接受，从而把每个字符间的 NUL 当成正文。
+        if let utf16 = detectUTF16WithoutBOM(probe: probe, data: data) {
+            return utf16
+        }
+
+        // 3. UTF-8 严格校验
         if let utf8Text = strictUTF8(data) {
             return EncodingDetectionResult(
                 encoding: .utf8,
@@ -72,11 +81,6 @@ enum TextEncodingDetector {
                 hasReplacementCharacters: false,
                 isFallback: false
             )
-        }
-
-        // 3. UTF-16 无 BOM 启发
-        if let utf16 = detectUTF16WithoutBOM(probe: probe, data: data) {
-            return utf16
         }
 
         // 4. CJK 候选互斥评分
@@ -172,11 +176,14 @@ enum TextEncodingDetector {
 
     // MARK: - UTF-8
 
-    /// 严格 UTF-8 校验：解码成功且不含替换字符。
+    /// 严格 UTF-8 校验：解码成功、不含替换字符、不含 NUL。
+    ///
+    /// NUL 字节在纯文本里不应出现。若出现，多半是被 UTF-16 编码过的文本
+    /// （每个 ASCII 字符后跟一个 0x00），此时应交给 UTF-16 分支处理。
     private static func strictUTF8(_ data: Data) -> String? {
         guard let text = String(data: data, encoding: .utf8) else { return nil }
         guard !text.contains("\u{FFFD}") else { return nil }
-        // 纯 ASCII 也走这里，属正确结果
+        guard !text.unicodeScalars.contains(where: { $0.value == 0 }) else { return nil }
         return text
     }
 
@@ -297,23 +304,42 @@ enum TextEncodingDetector {
 
         guard !scored.isEmpty else { return nil }
 
-        // 决策顺序（关键）：
-        // 1. 若存在「假名密度足够高」的日文候选，优先判为日文。
-        //    中文文本几乎不含假名，一旦出现成规模的假名，就说明原文是日文。
-        //    这一步必须在中文候选之前：GB18030 也能把日文解成看似合理的中文。
-        // 2. 否则在中文候选中取汉字密度最高的。
-        if let japanese = scored
-            .filter({ $0.candidate.script == .kana })
-            .max(by: { $0.metrics.kanaRatio < $1.metrics.kanaRatio }) {
-            return EncodingDetectionResult(
-                encoding: japanese.candidate.encoding,
-                displayName: japanese.candidate.displayName,
-                text: japanese.text,
-                hasReplacementCharacters: false,
-                isFallback: false
-            )
+        // 决策依据：字节级线索优先，字符统计兜底。
+        //
+        // Shift-JIS 的双字节高字节落在 0x81–0x9F（或 0xE0–0xEF），
+        // 而 GB18030 / Big5 的双字节高字节落在 0xA1–0xFE。
+        // 这是字节层面的互斥特征，比「解出来像不像中文」可靠得多，
+        // 因为 GB18030 能把任何字节流解成看似合理的汉字。
+        let hint = byteRangeHint(data: data)
+
+        if hint == .shiftJIS {
+            if let japanese = scored.first(where: { $0.candidate.encoding == encoding(from: .shiftJIS) }) {
+                return EncodingDetectionResult(
+                    encoding: japanese.candidate.encoding,
+                    displayName: japanese.candidate.displayName,
+                    text: japanese.text,
+                    hasReplacementCharacters: false,
+                    isFallback: false
+                )
+            }
         }
 
+        // 假名密度足够高 → 日文（覆盖 EUC-JP 这类字节范围与中文重叠的编码）
+        if hint != .doubleByteHigh {
+            if let japanese = scored
+                .filter({ $0.candidate.script == .kana })
+                .max(by: { $0.metrics.kanaRatio < $1.metrics.kanaRatio }) {
+                return EncodingDetectionResult(
+                    encoding: japanese.candidate.encoding,
+                    displayName: japanese.candidate.displayName,
+                    text: japanese.text,
+                    hasReplacementCharacters: false,
+                    isFallback: false
+                )
+            }
+        }
+
+        // 中文候选：取汉字密度最高者
         guard let chinese = scored
             .filter({ $0.candidate.script == .han })
             .max(by: { $0.metrics.hanRatio < $1.metrics.hanRatio }) else {
@@ -327,6 +353,51 @@ enum TextEncodingDetector {
             hasReplacementCharacters: false,
             isFallback: false
         )
+    }
+
+    /// 字节范围的粗分类。
+    private enum ByteRangeHint {
+        /// 双字节高字节主要落在 0x81–0x9F：Shift-JIS 特征。
+        case shiftJIS
+        /// 双字节高字节主要落在 0xA1–0xFE：GB18030 / Big5 特征。
+        case doubleByteHigh
+        /// 无明显倾向。
+        case inconclusive
+    }
+
+    /// 统计双字节序列的高字节分布，给出编码倾向。
+    private static func byteRangeHint(data: Data) -> ByteRangeHint {
+        let bytes = [UInt8](data.prefix(probeByteLimit))
+        guard bytes.count > 8 else { return .inconclusive }
+
+        var low = 0   // 0x81...0x9F
+        var high = 0  // 0xA1...0xFE
+        var index = 0
+
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte < 0x80 {
+                index += 1
+                continue
+            }
+            // 双字节序列的首字节
+            if (0x81...0x9F).contains(byte) {
+                low += 1
+            } else if (0xA1...0xFE).contains(byte) {
+                high += 1
+            }
+            index += 2
+        }
+
+        let total = low + high
+        guard total >= 8 else { return .inconclusive }
+
+        let lowRatio = Double(low) / Double(total)
+        let highRatio = Double(high) / Double(total)
+
+        if lowRatio > 0.8 { return .shiftJIS }
+        if highRatio > 0.8 { return .doubleByteHigh }
+        return .inconclusive
     }
 
     /// 文本统计指标。
