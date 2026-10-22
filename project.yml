@@ -7,6 +7,11 @@ options:
   groupSortPosition: top
   generateEmptyDirectories: true
 
+packages:
+  Readium:
+    url: https://github.com/readium/swift-toolkit.git
+    exactVersion: 3.11.1
+
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -33,6 +38,13 @@ targets:
       - path: ModuReader
         excludes:
           - "Resources/Info.plist"
+    dependencies:
+      - package: Readium
+        product: ReadiumShared
+      - package: Readium
+        product: ReadiumStreamer
+      - package: Readium
+        product: ReadiumNavigator
     info:
       path: ModuReader/Resources/Info.plist
       properties:

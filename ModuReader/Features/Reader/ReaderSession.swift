@@ -21,7 +21,7 @@ final class ReaderSession {
     // MARK: - Immutable
 
     let book: BookDescriptor
-    let engine: TextKitEngine
+    let engine: any RenderEngine
 
     // MARK: - Observable state
 
@@ -78,7 +78,7 @@ final class ReaderSession {
 
     init(
         book: BookDescriptor,
-        engine: TextKitEngine,
+        engine: any RenderEngine,
         settings: ReaderSettings,
         modelContext: ModelContext
     ) {

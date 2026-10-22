@@ -84,11 +84,29 @@ protocol RenderEngine: AnyObject {
     /// 当前章节序号。
     var currentChapterIndex: Int { get }
 
+    /// 全书总页数。WebKit 引擎没有页的概念，返回 0。
+    var totalPageCountValue: Int { get }
+
+    /// 当前页码（1 起）。WebKit 引擎返回 0。
+    var currentPageNumber: Int { get }
+
+    /// 本书是否内嵌了可选字体。
+    var hasBookFont: Bool { get }
+
+    /// 承载渲染内容的视图控制器。引擎本身通常就是它。
+    var hostViewController: UIViewController { get }
+
     /// 在全书范围内搜索。
     ///
     /// 实现应在后台逐章扫描并支持取消（`Task.isCancelled`）。
     /// 返回结果按阅读顺序排列。
     func search(_ query: String) async -> [SearchResult]
+}
+
+extension RenderEngine {
+    var totalPageCountValue: Int { 0 }
+    var currentPageNumber: Int { 0 }
+    var hasBookFont: Bool { false }
 }
 
 /// 一条搜索结果。

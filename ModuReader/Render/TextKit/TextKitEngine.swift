@@ -76,6 +76,9 @@ final class TextKitEngine: UIViewController, RenderEngine {
         return min(1, max(0, Double(currentPageNumber) / Double(totalPageCount)))
     }
 
+    /// 承载视图（引擎自身）。
+    var hostViewController: UIViewController { self }
+
     /// 全书总页数（对外只读）。
     var totalPageCountValue: Int { totalPageCount }
 
@@ -682,6 +685,12 @@ final class TextKitEngine: UIViewController, RenderEngine {
         )
         scroll.frame = contentView.bounds
         scroll.contentInset = insets
+
+        // 必须先给 stack 设定宽度：
+        // UIStackView 的 arrangedSubviews 宽度由 stack 宽度决定，
+        // 若在 rebuild 时 stack 宽度为 0，画布宽度也是 0 —— 什么都画不出来。
+        stack.frame = CGRect(x: 0, y: 0, width: profile.contentWidth, height: 1)
+        stack.layoutIfNeeded()
 
         // 重建 stack：围绕当前章加载前后各一章
         rebuildStack(around: currentChapterIndex, profile: profile)

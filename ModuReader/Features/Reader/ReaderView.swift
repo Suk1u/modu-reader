@@ -31,7 +31,7 @@ struct ReaderView: View {
                 session.theme.backgroundColor
                     .ignoresSafeArea()
 
-                ReaderCanvas(engine: session.engine)
+                ReaderCanvas(engine: session.engine.hostViewController)
                     .ignoresSafeArea(edges: [.horizontal])
 
                 chromeOverlay(session: session)
@@ -126,10 +126,18 @@ struct ReaderView: View {
         let fileStore = appContainer.fileStore
         let settings = appContainer.globalSettings
 
-        let engine = TextKitEngine(
-            fileStore: fileStore,
-            pageCache: appContainer.pageCache
-        )
+        // EPUB 走 Readium（WKWebView，保留出版方 CSS 与内嵌字体）；
+        // TXT / Markdown 走 TextKit（更快、分页更精确）。
+        let engine: any RenderEngine
+        switch book.kind {
+        case .epubReflowable, .epubFixedLayout:
+            engine = ReadiumEPUBEngine(fileStore: fileStore)
+        default:
+            engine = TextKitEngine(
+                fileStore: fileStore,
+                pageCache: appContainer.pageCache
+            )
+        }
         let session = ReaderSession(
             book: book,
             engine: engine,
