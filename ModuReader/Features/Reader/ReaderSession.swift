@@ -29,6 +29,10 @@ final class ReaderSession {
     var settings: ReaderSettings {
         didSet {
             guard settings != oldValue else { return }
+            // 阅读方式按书记忆：变化时立即写库
+            if settings.readingMode != oldValue.readingMode {
+                persistReadingMode(settings.readingMode)
+            }
             Task { await engine.apply(settings: settings) }
         }
     }
@@ -88,6 +92,11 @@ final class ReaderSession {
 
     /// 加载书籍。
     func start() async throws {
+        // 恢复该书上次使用的阅读方式（在引擎加载前应用，避免先按默认模式排版）
+        if let saved = loadSavedReadingMode() {
+            settings.readingMode = saved
+        }
+
         let initialLocator = loadSavedLocator()
 
         engine.onLocatorChange = { [weak self] locator in
@@ -208,6 +217,30 @@ final class ReaderSession {
             await engine.go(to: locator, animated: false)
             syncChapterState()
         }
+    }
+
+    // MARK: - 阅读方式持久化
+
+    /// 读取该书保存的阅读方式。
+    private func loadSavedReadingMode() -> ReadingMode? {
+        let bookID = book.id
+        let descriptor = FetchDescriptor<BookEntity>(
+            predicate: #Predicate { $0.id == bookID }
+        )
+        guard let entity = try? modelContext.fetch(descriptor).first,
+              let raw = entity.readingModeRaw else { return nil }
+        return ReadingMode(rawValue: raw)
+    }
+
+    /// 保存该书当前阅读方式。
+    private func persistReadingMode(_ mode: ReadingMode) {
+        let bookID = book.id
+        let descriptor = FetchDescriptor<BookEntity>(
+            predicate: #Predicate { $0.id == bookID }
+        )
+        guard let entity = try? modelContext.fetch(descriptor).first else { return }
+        entity.readingModeRaw = mode.rawValue
+        try? modelContext.save()
     }
 
     // MARK: - Progress persistence

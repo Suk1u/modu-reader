@@ -93,16 +93,45 @@ final class TextKitEngine: UIViewController, RenderEngine {
         return pagesBefore + currentPageIndex + 1
     }
 
-    /// 当前滚动位置在本章内的比例（0...1）。
+    /// 当前滚动位置在**当前章**内的比例（0...1）。
+    ///
+    /// 整本书滚动时页面里同时存在多章画布，
+    /// 必须按「当前章画布」的局部区间计算，不能用整个 contentSize。
     private func scrollFraction() -> Double {
-        guard let scrollView else { return 0 }
-        let scrollable = scrollView.contentSize.height
-            + scrollView.contentInset.top
-            + scrollView.contentInset.bottom
-            - scrollView.bounds.height
-        guard scrollable > 1 else { return 1 }
-        let offset = scrollView.contentOffset.y + scrollView.contentInset.top
-        return min(1, max(0, Double(offset / scrollable)))
+        guard let scrollView, let stack = scrollStack else { return 0 }
+
+        let probeY = scrollView.contentOffset.y + scrollView.contentInset.top
+        let canvas = stack.arrangedSubviews.first { view in
+            probeY >= view.frame.minY && probeY < view.frame.maxY
+        } ?? stack.arrangedSubviews.last
+
+        guard let canvas, canvas.frame.height > 1 else { return 0 }
+        let local = probeY - canvas.frame.minY
+        return min(1, max(0, Double(local / canvas.frame.height)))
+    }
+
+    /// 根据滚动位置同步当前章节。
+    ///
+    /// 整本书滚动时，用户可能连续翻过多章，
+    /// `currentChapterIndex` 必须跟着可视区域走，
+    /// 否则进度、目录高亮、章节标题都会错。
+    private func syncCurrentChapterFromScroll() {
+        guard let scrollView, let stack = scrollStack else { return }
+        let probeY = scrollView.contentOffset.y + scrollView.contentInset.top
+
+        guard let canvas = stack.arrangedSubviews.first(where: { view in
+            probeY >= view.frame.minY && probeY < view.frame.maxY
+        }) else { return }
+
+        let index = canvas.tag
+        guard index != currentChapterIndex, chapters.indices.contains(index) else { return }
+
+        currentChapterIndex = index
+        if let book, let chapter = chapters[safe: index],
+           let text = try? fileStore.readChapter(for: book.id, fileName: chapter.filePath) {
+            currentChapterText = text
+        }
+        currentLayout = chapterLayouts[index]
     }
 
     // MARK: - State
@@ -154,8 +183,14 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
     /// 滚动模式下的滚动容器。
     private var scrollView: UIScrollView?
-    /// 滚动模式下的正文画布。
-    private var scrollContentView: ScrollChapterView?
+    /// 滚动模式下按章节排列的垂直 stack。
+    private var scrollStack: UIStackView?
+    /// 已加载的章节序号。
+    private var loadedChapters: Set<Int> = []
+    /// 每章对应的排版（滚动模式）。
+    private var chapterLayouts: [Int: ChapterLayout] = [:]
+    /// 防止滚动回调里重入加载。
+    private var isLoadingAdjacentChapter = false
 
     /// 当前是否滚动模式。
     private var isScrollMode: Bool { settings.readingMode == .scroll }
@@ -211,7 +246,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
                     width: profile.contentWidth
                 )
             }
-            showScrollContent(layout: layout, profile: profile)
+            showScrollContent(profile: profile)
             return
         }
 
@@ -333,10 +368,21 @@ final class TextKitEngine: UIViewController, RenderEngine {
         }
 
         if isScrollMode {
-            // 滚动模式：重新排版并刷新画布
-            guard let layout = currentLayout, let attributed = currentAttributed else { return }
+            // 滚动模式：必须用**新的 profile** 重建富文本。
+            // 复用 currentAttributed 会让字号/行距/段距/缩进改动完全不生效。
+            let attributed = Self.makeChapterAttributed(
+                text: currentChapterText,
+                profile: newProfile,
+                textColor: settings.theme.text,
+                bookDirectory: book.map { fileStore.bookDirectory(for: $0.id) }
+            )
+            currentAttributed = attributed
+
+            let layout = ChapterLayout()
             layout.prepareFull(attributed: attributed, width: newProfile.contentWidth)
-            showScrollContent(layout: layout, profile: newProfile)
+            currentLayout = layout
+            lastProfile = newProfile
+            showScrollContent(profile: newProfile)
             return
         }
 
@@ -575,7 +621,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let attributed = Self.makeChapterAttributed(
             text: text,
             profile: profile,
-            textColor: settings.theme.text
+            textColor: settings.theme.text,
+            bookDirectory: book.map { fileStore.bookDirectory(for: $0.id) }
         )
 
         // 用共享的 ChapterLayout 完成排版
@@ -598,7 +645,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
         if isScrollMode {
             // 滚动模式不需要分页
             currentPagination = nil
-            showScrollContent(layout: layout, profile: profile)
+            showScrollContent(profile: profile)
         } else {
             hideScrollContent()
             // 分页用 CTFramesetter（确定性、快），渲染用上面的 ChapterLayout
@@ -610,10 +657,14 @@ final class TextKitEngine: UIViewController, RenderEngine {
         }
     }
 
-    // MARK: - 滚动模式
+    // MARK: - 滚动模式（整本书连续滚动）
 
-    /// 切换到滚动模式并展示当前章。
-    private func showScrollContent(layout: ChapterLayout, profile: TypographyProfile) {
+    /// 把当前章节定位到滚动视图里。
+    ///
+    /// 整本书滚动的实现方式：
+    /// 用一个垂直 stack 按章节顺序排列画布，滚动到边界时
+    /// 动态追加下一章 / 前插上一章，从而形成连续滚动的整本体验。
+    private func showScrollContent(profile: TypographyProfile) {
         // 分页视图全部收起
         pagePool.recycle(except: [])
         for relative in [-1, 0, 1] {
@@ -621,7 +672,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
         }
 
         let scroll = scrollView ?? makeScrollView()
-        let canvas = scrollContentView ?? makeScrollCanvas()
+        let stack = scrollStack ?? makeScrollStack()
 
         let insets = UIEdgeInsets(
             top: CGFloat(settings.verticalPadding),
@@ -631,16 +682,19 @@ final class TextKitEngine: UIViewController, RenderEngine {
         )
         scroll.frame = contentView.bounds
         scroll.contentInset = insets
-        canvas.frame = CGRect(
-            x: 0, y: 0,
+
+        // 重建 stack：围绕当前章加载前后各一章
+        rebuildStack(around: currentChapterIndex, profile: profile)
+
+        stack.frame.size.width = profile.contentWidth
+        stack.layoutIfNeeded()
+        scroll.contentSize = CGSize(
             width: profile.contentWidth,
-            height: max(1, layout.contentHeight)
+            height: stack.frame.height
         )
-        canvas.configure(layout: layout, contentWidth: profile.contentWidth)
-        scroll.contentSize = canvas.frame.size
 
         scroll.isHidden = false
-        canvas.isHidden = false
+        stack.isHidden = false
     }
 
     private func makeScrollView() -> UIScrollView {
@@ -656,17 +710,126 @@ final class TextKitEngine: UIViewController, RenderEngine {
         return scroll
     }
 
-    private func makeScrollCanvas() -> ScrollChapterView {
+    private func makeScrollStack() -> UIStackView {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.alignment = .fill
+        stack.distribution = .fill
+        scrollView?.addSubview(stack)
+        scrollStack = stack
+        return stack
+    }
+
+    /// 重建 stack 为「前一章 / 当前章 / 后一章」。
+    private func rebuildStack(around index: Int, profile: TypographyProfile) {
+        guard let stack = scrollStack else { return }
+
+        for view in stack.arrangedSubviews {
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        loadedChapters.removeAll()
+
+        let lower = max(0, index - 1)
+        let upper = min(chapters.count - 1, index + 1)
+        guard lower <= upper else { return }
+
+        for chapterIndex in lower...upper {
+            if let canvas = makeCanvas(for: chapterIndex, profile: profile) {
+                stack.addArrangedSubview(canvas)
+                loadedChapters.insert(chapterIndex)
+            }
+        }
+
+        stack.layoutIfNeeded()
+    }
+
+    /// 为某一章创建画布。
+    private func makeCanvas(for index: Int, profile: TypographyProfile) -> ScrollChapterView? {
+        guard let book, let chapter = chapters[safe: index] else { return nil }
+        guard let text = try? fileStore.readChapter(for: book.id, fileName: chapter.filePath) else {
+            return nil
+        }
+
+        let attributed = Self.makeChapterAttributed(
+            text: text,
+            profile: profile,
+            textColor: settings.theme.text,
+            bookDirectory: fileStore.bookDirectory(for: book.id)
+        )
+
+        let layout = ChapterLayout()
+        layout.prepareFull(attributed: attributed, width: profile.contentWidth)
+
         let canvas = ScrollChapterView()
-        canvas.autoresizingMask = []
-        scrollView?.addSubview(canvas)
-        scrollContentView = canvas
+        canvas.configure(layout: layout, contentWidth: profile.contentWidth)
+        canvas.heightAnchor.constraint(
+            equalToConstant: max(1, layout.contentHeight)
+        ).isActive = true
+
+        // 记录章节归属，滚动时用于判断当前位置
+        canvas.tag = index
+        chapterLayouts[index] = layout
         return canvas
+    }
+
+    /// 滚动到边界时加载相邻章节。
+    private func loadAdjacentChapterIfNeeded() {
+        guard isScrollMode,
+              let scroll = scrollView,
+              let stack = scrollStack,
+              let profile = currentProfile(),
+              !isLoadingAdjacentChapter else { return }
+
+        let offset = scroll.contentOffset.y + scroll.contentInset.top
+        let total = stack.frame.height
+
+        // 接近底部 → 追加下一章
+        if offset > total - scroll.bounds.height * 1.5 {
+            let lastIndex = loadedChapters.max() ?? currentChapterIndex
+            let next = lastIndex + 1
+            guard next < chapters.count, !loadedChapters.contains(next) else { return }
+
+            isLoadingAdjacentChapter = true
+            if let canvas = makeCanvas(for: next, profile: profile) {
+                stack.addArrangedSubview(canvas)
+                loadedChapters.insert(next)
+                stack.layoutIfNeeded()
+                scroll.contentSize = CGSize(
+                    width: profile.contentWidth,
+                    height: stack.frame.height
+                )
+            }
+            isLoadingAdjacentChapter = false
+        }
+
+        // 接近顶部 → 前插上一章
+        if offset < scroll.bounds.height * 0.5 {
+            let firstIndex = loadedChapters.min() ?? currentChapterIndex
+            let previous = firstIndex - 1
+            guard previous >= 0, !loadedChapters.contains(previous) else { return }
+
+            isLoadingAdjacentChapter = true
+            if let canvas = makeCanvas(for: previous, profile: profile) {
+                let addedHeight = canvas.frame.height
+                stack.insertArrangedSubview(canvas, at: 0)
+                loadedChapters.insert(previous)
+                stack.layoutIfNeeded()
+                scroll.contentSize = CGSize(
+                    width: profile.contentWidth,
+                    height: stack.frame.height
+                )
+                // 前插会让内容下移，同步调整偏移避免跳动
+                scroll.contentOffset.y += addedHeight
+            }
+            isLoadingAdjacentChapter = false
+        }
     }
 
     private func hideScrollContent() {
         scrollView?.isHidden = true
-        scrollContentView?.isHidden = true
+        scrollStack?.isHidden = true
     }
 
     // MARK: - Rendering
@@ -718,7 +881,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
     nonisolated static func makeChapterAttributed(
         text: String,
         profile: TypographyProfile,
-        textColor: RGBColor
+        textColor: RGBColor,
+        bookDirectory: URL? = nil
     ) -> NSAttributedString {
         let baseAttributes = profile.attributes(textColor: textColor)
 
@@ -776,7 +940,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
             guard let attachment = makeAttachment(
                 path: reference.source,
-                maxWidth: profile.contentWidth
+                maxWidth: profile.contentWidth,
+                bookDirectory: bookDirectory
             ) else {
                 let blank = String(repeating: "\u{2007}", count: markerLength)
                 result.replaceCharacters(in: reference.range, with: blank)
@@ -824,9 +989,11 @@ final class TextKitEngine: UIViewController, RenderEngine {
     /// - 用居中的段落样式，避免图片贴在左侧、右边留白
     nonisolated private static func makeAttachment(
         path: String,
-        maxWidth: CGFloat
+        maxWidth: CGFloat,
+        bookDirectory: URL?
     ) -> NSTextAttachment? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+        guard let fileURL = resolveImageURL(path: path, bookDirectory: bookDirectory),
+              let data = try? Data(contentsOf: fileURL),
               let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             Diagnostics.log("TextKitEngine: 图片读取失败 \(path)")
             return nil
@@ -865,6 +1032,35 @@ final class TextKitEngine: UIViewController, RenderEngine {
         attachment.image = UIImage(cgImage: cgImage)
         attachment.bounds = CGRect(origin: .zero, size: targetSize)
         return attachment
+    }
+
+    /// 解析图片路径为当前容器内的绝对 URL。
+    ///
+    /// 章节文件里存的是相对书籍目录的路径（`extracted/OEBPS/...`）。
+    /// 但旧版本存过绝对路径，那些路径在 App 重装后失效 ——
+    /// 这里做兼容：若绝对路径不存在，提取 `extracted/` 之后的部分重建。
+    nonisolated private static func resolveImageURL(
+        path: String,
+        bookDirectory: URL?
+    ) -> URL? {
+        // 相对路径：拼到当前书籍目录
+        if !path.hasPrefix("/") {
+            guard let bookDirectory else { return nil }
+            let url = bookDirectory.appendingPathComponent(path)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+
+        // 绝对路径：先看是否存在
+        if FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        // 旧数据兼容：从绝对路径里截出 `extracted/...` 后缀重新拼接
+        guard let range = path.range(of: "/extracted/") else { return nil }
+        guard let bookDirectory else { return nil }
+        let suffix = String(path[range.upperBound...])
+        let url = bookDirectory.appendingPathComponent("extracted/" + suffix)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     private func notifyLocatorChange() {
@@ -927,7 +1123,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let attributed = Self.makeChapterAttributed(
             text: text,
             profile: profile,
-            textColor: settings.theme.text
+            textColor: settings.theme.text,
+            bookDirectory: book.map { fileStore.bookDirectory(for: $0.id) }
         )
 
         let layout = ChapterLayout()
@@ -1001,9 +1198,12 @@ extension Array {
 
 extension TextKitEngine: UIScrollViewDelegate {
 
-    /// 滚动时上报位置变化（节流由 ReaderSession 负责）。
+    /// 滚动时上报位置变化，并在接近边界时加载相邻章节。
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard isScrollMode else { return }
+
+        loadAdjacentChapterIfNeeded()
+        syncCurrentChapterFromScroll()
         onLocatorChange?(currentLocator)
     }
 }

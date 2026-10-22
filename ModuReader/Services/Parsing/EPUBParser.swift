@@ -1151,13 +1151,13 @@ struct EPUBParser: Sendable {
             let relative = chapterDirectory.isEmpty
                 ? decoded
                 : "\(chapterDirectory)/\(decoded)"
-            let absolute = extractedRoot
-                .appendingPathComponent(relative)
-                .standardizedFileURL
-                .path
 
-            // 归一化 ../ 与 ./
-            let normalized = (absolute as NSString).standardizingPath
+            // 只存**相对书籍目录**的路径：`extracted/OEBPS/Images/xxx.jpg`。
+            //
+            // 不能存绝对路径：iOS 的 App 容器路径含随机 UUID，
+            // 每次重装 App 都会变，旧书里保存的绝对路径会全部失效
+            // （表现为「图片加载失败」刷满日志）。
+            let normalized = ("extracted/" + relative as NSString).standardizingPath
             let replacement = imageMarker(for: normalized)
             mutable.replaceCharacters(in: reference.range, with: replacement)
         }

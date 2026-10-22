@@ -25,6 +25,8 @@ final class BookEntity {
     var lastOpenedAt: Date?
     var detectedEncoding: String?
     var isFinished: Bool
+    /// 该书的阅读方式（paged / scroll）。nil 表示跟随全局默认。
+    var readingModeRaw: String?
 
     @Relationship(deleteRule: .cascade, inverse: \ProgressEntity.book)
     var progress: ProgressEntity?
@@ -42,7 +44,8 @@ final class BookEntity {
         addedAt: Date = Date(),
         lastOpenedAt: Date? = nil,
         detectedEncoding: String? = nil,
-        isFinished: Bool = false
+        isFinished: Bool = false,
+        readingModeRaw: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -57,6 +60,7 @@ final class BookEntity {
         self.lastOpenedAt = lastOpenedAt
         self.detectedEncoding = detectedEncoding
         self.isFinished = isFinished
+        self.readingModeRaw = readingModeRaw
     }
 
     var kind: PublicationKind {
