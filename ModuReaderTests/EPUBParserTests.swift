@@ -420,7 +420,9 @@ struct EPUBImageTests {
 
         let references = EPUBParser.imageReferences(in: resolved)
         #expect(references.count == 1)
-        #expect(references[0].source.hasPrefix("/tmp/book/extracted"))
+        // 必须是相对路径：绝对路径在 App 重装后会失效（容器 UUID 变化）
+        #expect(!references[0].source.hasPrefix("/"))
+        #expect(references[0].source.hasPrefix("extracted/"))
         #expect(references[0].source.hasSuffix("Images/pic.jpg"))
     }
 
