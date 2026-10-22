@@ -48,7 +48,7 @@ final class ReadiumStack {
     /// 打开一本本地 EPUB。
     ///
     /// - Parameter url: 沙盒内的 .epub 文件路径。
-    func openPublication(at url: URL) async throws -> Publication {
+    func openPublication(at url: URL) async throws -> ReadiumShared.Publication {
         guard let fileURL = FileURL(url: url) else {
             throw ReadiumStackError.invalidURL
         }

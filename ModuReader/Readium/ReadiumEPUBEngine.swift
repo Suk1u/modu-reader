@@ -58,7 +58,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private let fileStore: FileStore
     private var book: BookDescriptor?
     private var settings = ReaderSettings()
-    private var publication: Publication?
+    private var publication: ReadiumShared.Publication?
     private var navigator: EPUBNavigatorViewController?
     private var chapterHrefs: [String] = []
 
@@ -110,7 +110,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
 
         addChild(navigator)
         navigator.view.frame = view.bounds
-        navigator.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        navigator.view.autoresizingMask = [UIView.AutoresizingMask.flexibleWidth, UIView.AutoresizingMask.flexibleHeight]
         view.addSubview(navigator.view)
         navigator.didMove(toParent: self)
 
@@ -213,7 +213,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     ///
     /// 标题优先取目录（tableOfContents）里对应 href 的 title，
     /// 没有则用 readingOrder 的 title，再没有就用「第 N 章」。
-    private func makeChapters(from publication: Publication) -> [Chapter] {
+    private func makeChapters(from publication: ReadiumShared.Publication) -> [Chapter] {
         var titles: [String: String] = [:]
         collectTitles(from: publication.tableOfContents, into: &titles)
 
@@ -236,7 +236,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }
     }
 
-    private func collectTitles(from links: [Link], into map: inout [String: String]) {
+    private func collectTitles(from links: [ReadiumShared.Link], into map: inout [String: String]) {
         for link in links {
             if let title = link.title, !title.isEmpty {
                 map[link.anyURL.string] = title
@@ -280,7 +280,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         guard let locator, let publication else { return nil }
 
         // 按 href 找到 readingOrder 里对应的资源
-        let link: Link? = {
+        let link: ReadiumShared.Link? = {
             if !locator.href.isEmpty,
                let match = publication.readingOrder.first(where: {
                    $0.anyURL.string == locator.href
