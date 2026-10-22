@@ -755,7 +755,7 @@ struct EPUBParser: Sendable {
     /// 用正则从 HTML 里取第一个 h1/h2 标题（退化路径用）。
     private static func firstHeading(fromHTML html: String) -> String? {
         for tag in ["h1", "h2", "h3"] {
-            let pattern = "<\(tag)[^>]*>([\s\S]*?)</\(tag)>"
+            let pattern = "<\(tag)[^>]*>([\\s\\S]*?)</\(tag)>"
             guard let regex = try? NSRegularExpression(
                 pattern: pattern,
                 options: [.caseInsensitive]
@@ -944,8 +944,7 @@ struct EPUBParser: Sendable {
 
         private func finishHeading() {
             let cleaned = headingBuffer
-                .replacingOccurrences(of: "
-", with: " ")
+                .replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !cleaned.isEmpty, cleaned.count <= 60 {
                 headingTitle = cleaned
