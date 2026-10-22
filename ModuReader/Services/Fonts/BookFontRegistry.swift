@@ -57,13 +57,13 @@ final class BookFontRegistry {
                 &error
             )
 
+            // 注册失败不直接放弃：字体可能已在上一轮注册过，
+            // 此时仍能通过描述符拿到 PostScript 名。
+            // 之前在这里 continue 导致「有时有字体选项、有时没有」——
+            // 取决于本次进程是否首次注册该字体。
             if !success {
-                // 已注册过不算失败
                 let message = error?.takeRetainedValue().localizedDescription ?? "未知原因"
-                if !message.contains("already registered") {
-                    Diagnostics.log("字体注册失败 \(url.lastPathComponent): \(message)")
-                    continue
-                }
+                Diagnostics.log("字体注册返回 false（继续尝试读取）: \(url.lastPathComponent) — \(message)")
             }
 
             // 读取字体的 PostScript 名
@@ -74,6 +74,7 @@ final class BookFontRegistry {
                     descriptor,
                     kCTFontNameAttribute
                   ) as? String else {
+                Diagnostics.log("字体描述符读取失败: \(url.lastPathComponent)")
                 continue
             }
 

@@ -15,6 +15,7 @@ struct ReaderSettingsPanel: View {
     var body: some View {
         NavigationStack {
             Form {
+                readingModeSection
                 themeSection
                 typographySection
                 spacingSection
@@ -31,6 +32,19 @@ struct ReaderSettingsPanel: View {
     }
 
     // MARK: - Sections
+
+    private var readingModeSection: some View {
+        Section("阅读方式") {
+            Picker("阅读方式", selection: $session.settings.readingMode) {
+                ForEach(ReadingMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityLabel("阅读方式")
+        }
+    }
 
     private var themeSection: some View {
         Section("主题") {

@@ -6,6 +6,21 @@
 import Foundation
 import UIKit
 
+/// 阅读模式。
+enum ReadingMode: String, Codable, CaseIterable, Sendable {
+    /// 分页阅读。
+    case paged
+    /// 纵向滚动阅读。
+    case scroll
+
+    var displayName: String {
+        switch self {
+        case .paged: "翻页"
+        case .scroll: "滚动"
+        }
+    }
+}
+
 /// 翻页动画。
 enum PageTurnAnimation: String, Codable, CaseIterable, Sendable {
     case slide
@@ -48,6 +63,10 @@ struct ReaderSettings: Codable, Equatable, Sendable {
 
     var themeName: String = ReaderTheme.paper.name
     var followSystemAppearance: Bool = false
+
+    // MARK: 阅读模式
+
+    var readingMode: ReadingMode = .paged
 
     // MARK: 翻页
 

@@ -93,27 +93,31 @@ struct EPUBParser: Sendable {
             }
 
             let text: String
+            let headingTitle: String?
             do {
-                var raw = try Self.extractText(fromXHTML: Data(contentsOf: resourceURL))
+                let content = try Self.extractContent(fromXHTML: Data(contentsOf: resourceURL))
                 // 把图片相对路径改写为解压目录内的绝对路径，
                 // 这样渲染层无需知道 OPF 结构。
-                raw = Self.resolveImagePaths(
-                    in: raw,
+                text = Self.resolveImagePaths(
+                    in: content.text,
                     chapterDirectory: (resourcePath as NSString).deletingLastPathComponent,
                     extractedRoot: extracted
                 )
-                text = raw
+                headingTitle = content.heading
             } catch {
                 Diagnostics.log("EPUB: 解析 \(resourcePath) 失败 \(error.localizedDescription)")
                 continue
             }
 
-            // 空章节也保留，否则章节序号会与目录错位。
-            // 标题按「规范化相对路径」查找（去掉 ./、解码百分号）。
+            // 标题优先级：
+            // 1. NCX / nav 的目录标题
+            // 2. 章节文件内的 <h1>/<h2>
+            // 3. 兜底「第 N 章」
             let normalizedResource = Self.normalizePath(resourcePath)
             let normalizedHref = Self.normalizePath(href)
             let title = package.tocTitles[normalizedResource]
                 ?? package.tocTitles[normalizedHref]
+                ?? headingTitle
                 ?? "第 \(index + 1) 章"
 
             let fileName = String(format: "%04d.txt", chapters.count)
@@ -725,19 +729,50 @@ struct EPUBParser: Sendable {
     /// 只提取语义结构：段落之间用空行分隔，标题单独成行。
     /// 丢弃全部标签、脚本、样式、注释。
     static func extractText(fromXHTML data: Data) throws -> String {
+        try extractContent(fromXHTML: data).text
+    }
+
+    /// 提取正文与章节标题。
+    ///
+    /// 标题来源优先级：`<h1>` → `<h2>` → `<title>`。
+    /// 这是 NCX/nav 解析失败时的兜底 —— 大部分 EPUB 的
+    /// 章节文件里都有一级标题。
+    static func extractContent(fromXHTML data: Data) -> (text: String, heading: String?) {
         let parser = XMLParser(data: data)
         let delegate = XHTMLTextDelegate()
         parser.delegate = delegate
 
-        // XHTML 可能不是严格合法的 XML（HTML 实体未声明等）。
-        // 解析失败时退化为正则剥离标签，保证至少能读到内容。
         if parser.parse() {
-            return delegate.finish()
+            return (delegate.finish(), delegate.headingTitle)
         }
 
         Diagnostics.log("EPUB: XHTML 严格解析失败，退化为正则剥离")
         let raw = String(decoding: data, as: UTF8.self)
-        return fallbackStripHTML(raw)
+        let heading = Self.firstHeading(fromHTML: raw)
+        return (fallbackStripHTML(raw), heading)
+    }
+
+    /// 用正则从 HTML 里取第一个 h1/h2 标题（退化路径用）。
+    private static func firstHeading(fromHTML html: String) -> String? {
+        for tag in ["h1", "h2", "h3"] {
+            let pattern = "<\(tag)[^>]*>([\s\S]*?)</\(tag)>"
+            guard let regex = try? NSRegularExpression(
+                pattern: pattern,
+                options: [.caseInsensitive]
+            ) else { continue }
+            let ns = html as NSString
+            guard let match = regex.firstMatch(
+                in: html,
+                range: NSRange(location: 0, length: ns.length)
+            ), match.numberOfRanges >= 2 else { continue }
+
+            let raw = ns.substring(with: match.range(at: 1))
+            let cleaned = raw
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty { return cleaned }
+        }
+        return nil
     }
 
     private final class XHTMLTextDelegate: NSObject, XMLParserDelegate {
@@ -755,6 +790,12 @@ struct EPUBParser: Sendable {
 
         /// 元素名栈对应的字体名（nil 表示用默认字体）。
         private var fontStack: [String?] = []
+
+        /// 从 <h1>/<h2>/<h3>/<title> 提取的章节标题。
+        private(set) var headingTitle: String?
+        private var capturingHeading = false
+        private var headingBuffer = ""
+        private var headingTagName: String?
         private var currentFont: String? { fontStack.last ?? nil }
 
         func parser(
@@ -773,9 +814,28 @@ struct EPUBParser: Sendable {
                 return
             }
 
-            if ["script", "head", "title"].contains(name) {
+            // <title> 也作为标题候选（优先级低于 h1）
+            if name == "title" {
+                if headingTitle == nil {
+                    capturingHeading = true
+                    headingTagName = "title"
+                    headingBuffer = ""
+                }
                 skipDepth += 1
                 return
+            }
+
+            if ["script", "head"].contains(name) {
+                skipDepth += 1
+                return
+            }
+
+            // 一级/二级标题优先于 <title>
+            if ["h1", "h2", "h3"].contains(name),
+               headingTitle == nil || headingTagName == "title" {
+                capturingHeading = true
+                headingTagName = name
+                headingBuffer = ""
             }
 
             // 解析该元素使用的字体：优先内联 style，其次 class
@@ -829,6 +889,9 @@ struct EPUBParser: Sendable {
                 styleBuffer += string
                 return
             }
+            if capturingHeading {
+                headingBuffer += string
+            }
             guard skipDepth == 0 else { return }
             currentParagraph += string
         }
@@ -848,9 +911,21 @@ struct EPUBParser: Sendable {
                 return
             }
 
-            if ["script", "head", "title"].contains(name) {
+            if name == "title" {
+                skipDepth = max(0, skipDepth - 1)
+                if capturingHeading, headingTagName == "title" {
+                    finishHeading()
+                }
+                return
+            }
+
+            if ["script", "head"].contains(name) {
                 skipDepth = max(0, skipDepth - 1)
                 return
+            }
+
+            if ["h1", "h2", "h3"].contains(name), capturingHeading, headingTagName == name {
+                finishHeading()
             }
 
             if !fontStack.isEmpty {
@@ -865,6 +940,18 @@ struct EPUBParser: Sendable {
             default:
                 break
             }
+        }
+
+        private func finishHeading() {
+            let cleaned = headingBuffer
+                .replacingOccurrences(of: "
+", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty, cleaned.count <= 60 {
+                headingTitle = cleaned
+            }
+            capturingHeading = false
+            headingBuffer = ""
         }
 
         private func flushParagraph() {

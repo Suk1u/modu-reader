@@ -150,6 +150,43 @@ final class ChapterLayout {
         context.restoreGState()
     }
 
+    /// 完成整章排版并计算总高度（滚动模式用）。
+    ///
+    /// 与 `prepare` 的区别：这里会真正排完整章，
+    /// 因为滚动模式需要知道内容总高度才能设置 scrollView 的 contentSize。
+    @discardableResult
+    func prepareFull(attributed: NSAttributedString, width: CGFloat) -> Bool {
+        prepare(attributed: attributed, width: width)
+        guard isReady else { return false }
+
+        layoutManager.ensureLayout(for: contentStorage.documentRange)
+
+        var maxY: CGFloat = 0
+        layoutManager.enumerateTextLayoutFragments(
+            from: nil,
+            options: [.ensuresLayout]
+        ) { fragment in
+            maxY = max(maxY, fragment.layoutFragmentFrame.maxY)
+            return true
+        }
+        contentHeight = maxY
+        return true
+    }
+
+    /// 绘制整章（滚动模式用）。
+    func drawAll(in context: CGContext) {
+        guard isReady else { return }
+        context.saveGState()
+        layoutManager.enumerateTextLayoutFragments(
+            from: nil,
+            options: [.ensuresLayout]
+        ) { fragment in
+            fragment.draw(at: fragment.layoutFragmentFrame.origin, in: context)
+            return true
+        }
+        context.restoreGState()
+    }
+
     /// 更新文字颜色。
     func updateTextColor(_ color: UIColor) {
         guard let current = contentStorage.attributedString, current.length > 0 else { return }

@@ -422,26 +422,30 @@ struct BookCard: View {
         VStack(alignment: .leading, spacing: 8) {
             cover
 
+            // 标题固定占 2 行高度：不同书名长短不一时，
+            // 封面在网格里仍能对齐顶部。
             Text(book.title)
                 .font(.subheadline)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.leading)
                 .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let author = book.author, !author.isEmpty {
-                Text(author)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            // 作者行始终占位：没有作者时用空白：
+            // 否则有无作者的两张卡片高度不同，封面参差不齐。
+            Text(book.author ?? " ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            if progress > 0.001 {
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .tint(ReaderTheme.paper.accentColor)
-                    .accessibilityLabel("阅读进度")
-                    .accessibilityValue("\(Int(progress * 100))%")
-            }
+            // 进度条始终占位，避免有无进度的卡片高度不一致
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
+                .tint(ReaderTheme.paper.accentColor)
+                .opacity(progress > 0.001 ? 1 : 0)
+                .accessibilityLabel("阅读进度")
+                .accessibilityValue("\(Int(progress * 100))%")
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)

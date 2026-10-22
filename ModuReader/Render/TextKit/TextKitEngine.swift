@@ -38,7 +38,15 @@ final class TextKitEngine: UIViewController, RenderEngine {
         guard let chapter = chapters[safe: currentChapterIndex] else {
             return Locator(href: "")
         }
-        let offset = currentPageSlice?.range.location ?? 0
+
+        // 滚动模式没有「页」，按滚动比例折算字符偏移
+        let offset: Int
+        if isScrollMode {
+            let length = (currentChapterText as NSString).length
+            offset = Int(scrollFraction() * Double(length))
+        } else {
+            offset = currentPageSlice?.range.location ?? 0
+        }
         return LocatorResolver.makeLocator(
             text: currentChapterText,
             offset: offset,
@@ -48,10 +56,22 @@ final class TextKitEngine: UIViewController, RenderEngine {
         )
     }
 
-    /// 全书进度（按页数计算，不是按字符数）。
+    /// 全书进度。
+    ///
+    /// 分页模式按页数算；滚动模式按滚动偏移算。
     var totalProgression: Double {
         guard totalPageCount > 0 else { return 0 }
         let pagesBefore = chapterPageCounts.prefix(currentChapterIndex).reduce(0, +)
+
+        if isScrollMode {
+            // 滚动模式：按本章内偏移折算成页
+            let chapterPages = chapterPageCounts[safe: currentChapterIndex] ?? 1
+            let fraction = scrollFraction()
+            let pageInChapter = Int(fraction * Double(chapterPages))
+            let pageNumber = pagesBefore + min(chapterPages, pageInChapter + 1)
+            return min(1, max(0, Double(pageNumber) / Double(totalPageCount)))
+        }
+
         let currentPageNumber = pagesBefore + currentPageIndex + 1
         return min(1, max(0, Double(currentPageNumber) / Double(totalPageCount)))
     }
@@ -65,7 +85,24 @@ final class TextKitEngine: UIViewController, RenderEngine {
     /// 当前页码（全书维度，1 起）。
     var currentPageNumber: Int {
         let pagesBefore = chapterPageCounts.prefix(currentChapterIndex).reduce(0, +)
+        if isScrollMode {
+            let chapterPages = chapterPageCounts[safe: currentChapterIndex] ?? 1
+            let pageInChapter = Int(scrollFraction() * Double(chapterPages))
+            return pagesBefore + min(chapterPages, pageInChapter + 1)
+        }
         return pagesBefore + currentPageIndex + 1
+    }
+
+    /// 当前滚动位置在本章内的比例（0...1）。
+    private func scrollFraction() -> Double {
+        guard let scrollView else { return 0 }
+        let scrollable = scrollView.contentSize.height
+            + scrollView.contentInset.top
+            + scrollView.contentInset.bottom
+            - scrollView.bounds.height
+        guard scrollable > 1 else { return 1 }
+        let offset = scrollView.contentOffset.y + scrollView.contentInset.top
+        return min(1, max(0, Double(offset / scrollable)))
     }
 
     // MARK: - State
@@ -101,6 +138,10 @@ final class TextKitEngine: UIViewController, RenderEngine {
     private var currentPageIndex: Int = 0
     /// 最近一次分页使用的指纹，用于判断是否需要重排。
     private var lastProfile: TypographyProfile?
+    /// 上一次的阅读模式，用于检测切换。
+    private var oldReadingMode: ReadingMode = .paged
+    /// 当前章的富文本，供重新排版时复用。
+    private var currentAttributed: NSAttributedString?
 
     private var currentPageSlice: PageSlice? {
         currentPagination?.slices[safe: currentPageIndex]
@@ -110,6 +151,14 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
     private let contentView = UIView()
     private let pagePool = PagePool(capacity: 3)
+
+    /// 滚动模式下的滚动容器。
+    private var scrollView: UIScrollView?
+    /// 滚动模式下的正文画布。
+    private var scrollContentView: ScrollChapterView?
+
+    /// 当前是否滚动模式。
+    private var isScrollMode: Bool { settings.readingMode == .scroll }
 
     // MARK: - Queues
 
@@ -152,6 +201,20 @@ final class TextKitEngine: UIViewController, RenderEngine {
             estimatePageCounts()
         }
 
+        // 滚动模式：同步滚动容器与画布尺寸
+        if isScrollMode, let layout = currentLayout, let profile = currentProfile() {
+            let previousProfile = lastProfile
+            if previousProfile != profile {
+                lastProfile = profile
+                layout.prepareFull(
+                    attributed: currentAttributed ?? NSAttributedString(string: currentChapterText),
+                    width: profile.contentWidth
+                )
+            }
+            showScrollContent(layout: layout, profile: profile)
+            return
+        }
+
         // 尺寸变化 → 重新分页
         guard let profile = currentProfile() else { return }
         guard lastProfile != profile else {
@@ -172,6 +235,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
     ) async throws {
         self.book = book
         self.settings = settings
+        self.oldReadingMode = settings.readingMode
         self.totalCharacters = book.totalCharacters
 
         let index = try fileStore.readIndex(for: book.id)
@@ -261,6 +325,21 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
         guard let newProfile = currentProfile() else { return }
 
+        // 阅读模式切换 → 重建视图层级
+        if settings.readingMode != oldReadingMode {
+            oldReadingMode = settings.readingMode
+            Task { try? await loadChapter(at: currentChapterIndex) }
+            return
+        }
+
+        if isScrollMode {
+            // 滚动模式：重新排版并刷新画布
+            guard let layout = currentLayout, let attributed = currentAttributed else { return }
+            layout.prepareFull(attributed: attributed, width: newProfile.contentWidth)
+            showScrollContent(layout: layout, profile: newProfile)
+            return
+        }
+
         if oldProfile == nil || newProfile != oldProfile {
             lastProfile = newProfile
             repaginateKeepingPosition()
@@ -277,6 +356,10 @@ final class TextKitEngine: UIViewController, RenderEngine {
     // MARK: - RenderEngine: Navigation
 
     func nextPage() async -> Bool {
+        if isScrollMode {
+            return await scrollByPage(forward: true)
+        }
+
         guard let pagination = currentPagination else { return false }
 
         if currentPageIndex + 1 < pagination.pageCount {
@@ -296,6 +379,10 @@ final class TextKitEngine: UIViewController, RenderEngine {
     }
 
     func previousPage() async -> Bool {
+        if isScrollMode {
+            return await scrollByPage(forward: false)
+        }
+
         if currentPageIndex > 0 {
             currentPageIndex -= 1
             renderCurrentPage()
@@ -307,6 +394,49 @@ final class TextKitEngine: UIViewController, RenderEngine {
         try? await loadChapter(at: currentChapterIndex - 1)
         currentPageIndex = max(0, (currentPagination?.pageCount ?? 1) - 1)
         renderCurrentPage()
+        notifyLocatorChange()
+        return true
+    }
+
+    /// 滚动模式下按「一屏」滚动。到边界时切换章节。
+    private func scrollByPage(forward: Bool) async -> Bool {
+        guard let scrollView else { return false }
+
+        let pageHeight = max(1, scrollView.bounds.height - scrollView.contentInset.top)
+        let maxOffset = scrollView.contentSize.height
+            + scrollView.contentInset.bottom
+            - scrollView.bounds.height
+        let current = scrollView.contentOffset.y
+
+        let target = current + (forward ? pageHeight : -pageHeight)
+
+        if forward, target > maxOffset + 1 {
+            // 已到本章末尾 → 下一章
+            guard currentChapterIndex + 1 < chapters.count else { return false }
+            try? await loadChapter(at: currentChapterIndex + 1)
+            scrollView.setContentOffset(
+                CGPoint(x: 0, y: -scrollView.contentInset.top),
+                animated: false
+            )
+            notifyLocatorChange()
+            return true
+        }
+
+        if !forward, target < -scrollView.contentInset.top - 1 {
+            // 已到本章开头 → 上一章
+            guard currentChapterIndex > 0 else { return false }
+            try? await loadChapter(at: currentChapterIndex - 1)
+            // 落到上一章末尾
+            let bottom = scrollView.contentSize.height
+                + scrollView.contentInset.bottom
+                - scrollView.bounds.height
+            scrollView.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+            notifyLocatorChange()
+            return true
+        }
+
+        let clamped = min(maxOffset, max(-scrollView.contentInset.top, target))
+        scrollView.setContentOffset(CGPoint(x: 0, y: clamped), animated: true)
         notifyLocatorChange()
         return true
     }
@@ -448,28 +578,102 @@ final class TextKitEngine: UIViewController, RenderEngine {
             textColor: settings.theme.text
         )
 
-        // 用共享的 ChapterLayout 完成整章排版
+        // 用共享的 ChapterLayout 完成排版
         let layout = ChapterLayout()
-        layout.prepare(attributed: attributed, width: profile.contentWidth)
 
-        // 分页用 CTFramesetter（确定性、快），渲染用上面的 ChapterLayout
-        let pagination = Paginator.paginate(
-            attributedText: attributed,
-            profile: profile,
-            chapterIndex: index
-        )
+        if isScrollMode {
+            // 滚动模式需要知道内容总高度
+            layout.prepareFull(attributed: attributed, width: profile.contentWidth)
+        } else {
+            layout.prepare(attributed: attributed, width: profile.contentWidth)
+        }
 
         currentChapterIndex = index
         currentChapterText = text
+        currentAttributed = attributed
         currentLayout = layout
-        currentPagination = pagination
         currentPageIndex = 0
         lastProfile = profile
+
+        if isScrollMode {
+            // 滚动模式不需要分页
+            currentPagination = nil
+            showScrollContent(layout: layout, profile: profile)
+        } else {
+            hideScrollContent()
+            // 分页用 CTFramesetter（确定性、快），渲染用上面的 ChapterLayout
+            currentPagination = Paginator.paginate(
+                attributedText: attributed,
+                profile: profile,
+                chapterIndex: index
+            )
+        }
+    }
+
+    // MARK: - 滚动模式
+
+    /// 切换到滚动模式并展示当前章。
+    private func showScrollContent(layout: ChapterLayout, profile: TypographyProfile) {
+        // 分页视图全部收起
+        pagePool.recycle(except: [])
+        for relative in [-1, 0, 1] {
+            pagePool.view(for: relative, in: contentView).isHidden = true
+        }
+
+        let scroll = scrollView ?? makeScrollView()
+        let canvas = scrollContentView ?? makeScrollCanvas()
+
+        let insets = UIEdgeInsets(
+            top: CGFloat(settings.verticalPadding),
+            left: CGFloat(settings.horizontalPadding),
+            bottom: CGFloat(settings.verticalPadding) + 24,
+            right: CGFloat(settings.horizontalPadding)
+        )
+        scroll.frame = contentView.bounds
+        scroll.contentInset = insets
+        canvas.frame = CGRect(
+            x: 0, y: 0,
+            width: profile.contentWidth,
+            height: max(1, layout.contentHeight)
+        )
+        canvas.configure(layout: layout, contentWidth: profile.contentWidth)
+        scroll.contentSize = canvas.frame.size
+
+        scroll.isHidden = false
+        canvas.isHidden = false
+    }
+
+    private func makeScrollView() -> UIScrollView {
+        let scroll = UIScrollView()
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scroll.showsVerticalScrollIndicator = true
+        scroll.alwaysBounceVertical = true
+        scroll.backgroundColor = .clear
+        scroll.delegate = self
+        scroll.contentInsetAdjustmentBehavior = .never
+        contentView.addSubview(scroll)
+        scrollView = scroll
+        return scroll
+    }
+
+    private func makeScrollCanvas() -> ScrollChapterView {
+        let canvas = ScrollChapterView()
+        canvas.autoresizingMask = []
+        scrollView?.addSubview(canvas)
+        scrollContentView = canvas
+        return canvas
+    }
+
+    private func hideScrollContent() {
+        scrollView?.isHidden = true
+        scrollContentView?.isHidden = true
     }
 
     // MARK: - Rendering
 
     private func renderCurrentPage() {
+        // 滚动模式由 UIScrollView 负责显示，不走分页渲染
+        guard !isScrollMode else { return }
         guard let pagination = currentPagination,
               let layout = currentLayout,
               pagination.slices.indices.contains(currentPageIndex) else {
@@ -484,7 +688,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
             guard let targetSlice = pagination.slices[safe: targetIndex] else { continue }
 
             let pageView = pagePool.view(for: relative, in: contentView)
-            pageView.frame = contentView.bounds
+            pageView.frame = contentFrame()
             pageView.configure(layout: layout, slice: targetSlice)
             pageView.isHidden = relative != 0
         }
@@ -498,7 +702,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
             let targetIndex = currentPageIndex + relative
             guard let slice = currentPagination?.slices[safe: targetIndex] else { continue }
             let pageView = pagePool.view(for: relative, in: contentView)
-            pageView.frame = contentView.bounds
+            pageView.frame = contentFrame()
             pageView.configure(layout: layout, slice: slice)
             pageView.isHidden = relative != 0
         }
@@ -669,6 +873,21 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
     // MARK: - Profile
 
+    /// 正文区域的实际矩形（已扣除四周边距）。
+    ///
+    /// 页面视图必须用这个 frame：文本容器宽度是扣除边距的，
+    /// 若页面视图仍铺满全宽，文字会从 x=0 开始画，导致左无边距、右有大片空白。
+    private func contentFrame() -> CGRect {
+        contentView.bounds.inset(
+            by: UIEdgeInsets(
+                top: CGFloat(settings.verticalPadding),
+                left: CGFloat(settings.horizontalPadding),
+                bottom: CGFloat(settings.verticalPadding),
+                right: CGFloat(settings.horizontalPadding)
+            )
+        )
+    }
+
     private func contentSizeForCurrentLayout() -> CGSize {
         let width = contentView.bounds.width - CGFloat(settings.horizontalPadding) * 2
         let height = contentView.bounds.height - CGFloat(settings.verticalPadding) * 2
@@ -774,5 +993,17 @@ extension Array {
     subscript(safe index: Int) -> Element? {
         guard index >= 0, index < count else { return nil }
         return self[index]
+    }
+}
+
+
+// MARK: - UIScrollViewDelegate
+
+extension TextKitEngine: UIScrollViewDelegate {
+
+    /// 滚动时上报位置变化（节流由 ReaderSession 负责）。
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard isScrollMode else { return }
+        onLocatorChange?(currentLocator)
     }
 }
