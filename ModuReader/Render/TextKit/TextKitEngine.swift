@@ -372,17 +372,11 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let layout = ChapterLayout()
         layout.prepare(attributed: attributed, width: profile.contentWidth)
 
-        // 分页只读这份排版的 Y 坐标
-        let result = Paginator.paginate(
-            layout: layout,
-            pageHeight: profile.contentHeight,
-            totalLength: attributed.length
-        )
-
-        let pagination = PaginatedChapter(
-            chapterIndex: index,
-            characterCount: attributed.length,
-            slices: result.slices
+        // 分页用 CTFramesetter（确定性、快），渲染用上面的 ChapterLayout
+        let pagination = Paginator.paginate(
+            attributedText: attributed,
+            profile: profile,
+            chapterIndex: index
         )
 
         currentChapterIndex = index
@@ -437,7 +431,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
     /// 图片处理：把 U+FFFC 图片标记替换为
     /// 「1 个 NSTextAttachment + (N-1) 个零宽空格」，
     /// 保持文本长度不变 —— 分页区间基于原始长度计算。
-    static func makeChapterAttributed(
+    nonisolated static func makeChapterAttributed(
         text: String,
         profile: TypographyProfile,
         textColor: RGBColor
@@ -486,7 +480,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
     ///
     /// 按正文宽度等比缩放，并限制最大高度为页高的一半，
     /// 避免单张竖图撑满整页导致正文无处可放。
-    private static func makeAttachment(path: String, maxWidth: CGFloat) -> NSTextAttachment? {
+    nonisolated private static func makeAttachment(path: String, maxWidth: CGFloat) -> NSTextAttachment? {
         guard let image = UIImage(contentsOfFile: path) else {
             Diagnostics.log("TextKitEngine: 图片加载失败 \(path)")
             return nil
@@ -502,14 +496,23 @@ final class TextKitEngine: UIViewController, RenderEngine {
             height: max(1, image.size.height * scale)
         )
 
-        // 缩小到目标尺寸，避免大图常驻内存
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        let scaled = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        // 用 ImageIO 生成缩略图（线程安全，不用 UIGraphicsImageRenderer）
+        let maxPixel = max(targetSize.width, targetSize.height) * 2
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                source, 0, options as CFDictionary
+              ) else {
+            return nil
         }
 
         let attachment = NSTextAttachment()
-        attachment.image = scaled
+        attachment.image = UIImage(cgImage: cgImage)
         attachment.bounds = CGRect(origin: .zero, size: targetSize)
         return attachment
     }
@@ -564,16 +567,10 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let layout = ChapterLayout()
         layout.prepare(attributed: attributed, width: profile.contentWidth)
 
-        let result = Paginator.paginate(
-            layout: layout,
-            pageHeight: profile.contentHeight,
-            totalLength: attributed.length
-        )
-
-        let pagination = PaginatedChapter(
-            chapterIndex: chapterIndex,
-            characterCount: attributed.length,
-            slices: result.slices
+        let pagination = Paginator.paginate(
+            attributedText: attributed,
+            profile: profile,
+            chapterIndex: chapterIndex
         )
 
         currentLayout = layout
