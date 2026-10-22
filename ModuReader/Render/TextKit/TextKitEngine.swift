@@ -147,6 +147,11 @@ final class TextKitEngine: UIViewController, RenderEngine {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
+        // 首次拿到真实尺寸时，重新估算全书页数
+        if !chapters.isEmpty, totalPageCount == 0 {
+            estimatePageCounts()
+        }
+
         // 尺寸变化 → 重新分页
         guard let profile = currentProfile() else { return }
         guard lastProfile != profile else {
@@ -217,7 +222,20 @@ final class TextKitEngine: UIViewController, RenderEngine {
     /// 一本书可能有几百章，逐章真实排版要几十秒。
     /// 进度条只需要近似值，误差在 1-2 页内用户无感。
     private func estimatePageCounts() {
-        guard let profile = currentProfile() else { return }
+        // 此时 view 可能还没完成布局（bounds 为 0），
+        // currentProfile() 会返回 nil。用兜底尺寸估算，
+        // 布局完成后 viewDidLayoutSubviews 会重新估算。
+        let profile = currentProfile() ?? TypographyProfile(
+            fontFamily: settings.fontFamily,
+            bookFontName: settings.useBookFont ? bookFontName : nil,
+            fontSize: CGFloat(settings.fontSize),
+            lineHeightMultiple: CGFloat(settings.lineHeightMultiple),
+            paragraphSpacing: CGFloat(settings.paragraphSpacing),
+            firstLineIndent: settings.firstLineIndent,
+            letterSpacing: CGFloat(settings.letterSpacing),
+            contentWidth: 340,
+            contentHeight: 600
+        )
 
         // 每页大致能放多少字：正文面积 / 单字面积
         let lineHeight = profile.fontSize * profile.lineHeightMultiple
@@ -499,18 +517,56 @@ final class TextKitEngine: UIViewController, RenderEngine {
         textColor: RGBColor
     ) -> NSAttributedString {
         let baseAttributes = profile.attributes(textColor: textColor)
-        let references = EPUBParser.imageReferences(in: text)
 
-        guard !references.isEmpty else {
-            return NSAttributedString(string: text, attributes: baseAttributes)
-        }
+        // 1. 提取字体标记并剥离，得到纯正文
+        let fontRefs = EPUBParser.fontReferences(in: text)
+        let plainText = EPUBParser.strippingFontMarkers(text)
 
         let result = NSMutableAttributedString(
-            string: text,
+            string: plainText,
             attributes: baseAttributes
         )
 
-        for reference in references.reversed() {
+        // 2. 应用段落级字体
+        //
+        // fontRefs 的 offset 是「剥离标记后」的位置，
+        // 每个标记作用于从该位置到下一个标记（或文末）的段落。
+        if !fontRefs.isEmpty {
+            let ns = plainText as NSString
+            for (index, ref) in fontRefs.enumerated() {
+                let start = min(ref.offset, ns.length)
+                let end = index + 1 < fontRefs.count
+                    ? min(fontRefs[index + 1].offset, ns.length)
+                    : ns.length
+                guard end > start else { continue }
+
+                // 只应用到该段落的第一个换行前（字体标记是段落级的）
+                let segment = ns.substring(with: NSRange(location: start, length: end - start))
+                let lineLength: Int
+                if let newline = segment.firstIndex(of: "\n") {
+                    lineLength = segment.distance(from: segment.startIndex, to: newline)
+                } else {
+                    lineLength = segment.utf16.count
+                }
+                guard lineLength > 0 else { continue }
+
+                let applyRange = NSRange(location: start, length: lineLength)
+                if let custom = UIFont(name: ref.fontName, size: profile.fontSize) {
+                    result.addAttribute(.font, value: custom, range: applyRange)
+                }
+            }
+        }
+
+        // 3. 处理图片标记（位置基于含标记的原文，需要重新映射）
+        let imageRefs = EPUBParser.imageReferences(in: text)
+        guard !imageRefs.isEmpty else { return result }
+
+        // 计算图片标记在「剥离字体标记后」文本中的位置
+        let strippedText = plainText
+        let imageRefsInStripped = EPUBParser.imageReferences(in: strippedText)
+        guard !imageRefsInStripped.isEmpty else { return result }
+
+        for reference in imageRefsInStripped.reversed() {
             let markerLength = reference.range.length
             guard markerLength > 0 else { continue }
 
@@ -523,8 +579,6 @@ final class TextKitEngine: UIViewController, RenderEngine {
                 continue
             }
 
-            // 图片独占一段并居中：
-            // 段落样式用 .center，首行缩进清零，避免图片被缩进推偏。
             let centered = NSMutableParagraphStyle()
             centered.alignment = .center
             centered.firstLineHeadIndent = 0

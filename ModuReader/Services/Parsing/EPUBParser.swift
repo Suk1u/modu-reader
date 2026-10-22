@@ -231,6 +231,15 @@ struct EPUBParser: Sendable {
     ) -> [String: String] {
         // 找到 NCX 或 nav 文档
         var tocHref: String?
+
+        // 优先：spine 的 toc 属性（EPUB 2 标准做法）
+        if let tocID = package.spineTocID,
+           let item = package.manifest[tocID] {
+            tocHref = item.href
+            Diagnostics.log("EPUB: 使用 spine@toc 指向的 NCX: \(item.href)")
+        }
+
+        if tocHref == nil {
         for item in package.manifest.values {
             let mediaType = item.mediaType.lowercased()
             let properties = item.properties.lowercased()
@@ -242,6 +251,7 @@ struct EPUBParser: Sendable {
                 tocHref = item.href
                 break
             }
+        }
         }
 
         guard let tocHref else {
@@ -492,6 +502,8 @@ struct EPUBParser: Sendable {
         var coverID: String?
         /// EPUB 3 的 properties="cover-image" 图片 href。
         var coverHref: String?
+        /// spine 的 toc 属性，指向 NCX 的 manifest id（EPUB 2）。
+        var spineTocID: String?
 
         struct ManifestItem {
             var id: String
@@ -580,6 +592,10 @@ struct EPUBParser: Sendable {
             case "spine":
                 if let direction = attributeDict["page-progression-direction"] {
                     package.readingProgression = direction == "rtl" ? .rtl : .ltr
+                }
+                // EPUB 2 用 spine 的 toc 属性指向 NCX
+                if let tocID = attributeDict["toc"] {
+                    package.spineTocID = tocID
                 }
 
             case "dc:title", "title":
@@ -730,6 +746,17 @@ struct EPUBParser: Sendable {
         private var skipDepth = 0
         private var blockDepth = 0
 
+        /// 当前 <style> 块的文本缓冲。
+        private var styleBuffer = ""
+        private var inStyle = false
+
+        /// class → font-family 映射，从 <style> 解析得到。
+        private var classFonts: [String: String] = [:]
+
+        /// 元素名栈对应的字体名（nil 表示用默认字体）。
+        private var fontStack: [String?] = []
+        private var currentFont: String? { fontStack.last ?? nil }
+
         func parser(
             _ parser: XMLParser,
             didStartElement elementName: String,
@@ -739,10 +766,32 @@ struct EPUBParser: Sendable {
         ) {
             let name = elementName.lowercased()
 
-            if ["script", "style", "head", "title"].contains(name) {
+            if name == "style" {
+                inStyle = true
+                styleBuffer = ""
                 skipDepth += 1
                 return
             }
+
+            if ["script", "head", "title"].contains(name) {
+                skipDepth += 1
+                return
+            }
+
+            // 解析该元素使用的字体：优先内联 style，其次 class
+            var font: String?
+            if let inlineStyle = attributeDict["style"],
+               let parsed = Self.fontFamily(inCSS: inlineStyle) {
+                font = parsed
+            } else if let className = attributeDict["class"] {
+                for token in className.split(separator: " ") {
+                    if let mapped = classFonts[String(token)] {
+                        font = mapped
+                        break
+                    }
+                }
+            }
+            fontStack.append(font)
 
             switch name {
             case "p", "div", "section", "article", "blockquote", "li",
@@ -776,6 +825,10 @@ struct EPUBParser: Sendable {
         }
 
         func parser(_ parser: XMLParser, foundCharacters string: String) {
+            if inStyle {
+                styleBuffer += string
+                return
+            }
             guard skipDepth == 0 else { return }
             currentParagraph += string
         }
@@ -788,9 +841,20 @@ struct EPUBParser: Sendable {
         ) {
             let name = elementName.lowercased()
 
-            if ["script", "style", "head", "title"].contains(name) {
+            if name == "style" {
+                inStyle = false
+                skipDepth = max(0, skipDepth - 1)
+                classFonts = Self.parseFontRules(from: styleBuffer)
+                return
+            }
+
+            if ["script", "head", "title"].contains(name) {
                 skipDepth = max(0, skipDepth - 1)
                 return
+            }
+
+            if !fontStack.isEmpty {
+                fontStack.removeLast()
             }
 
             switch name {
@@ -808,7 +872,12 @@ struct EPUBParser: Sendable {
                 .replacingOccurrences(of: "\u{00A0}", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
-                output.append(text)
+                // 该段使用的字体（由最近的 class / inline style 决定）
+                if let font = currentFont, !font.isEmpty {
+                    output.append(EPUBParser.fontMarkerStart + font + EPUBParser.fontMarkerEnd + text)
+                } else {
+                    output.append(text)
+                }
             }
             currentParagraph = ""
         }
@@ -817,6 +886,102 @@ struct EPUBParser: Sendable {
             flushParagraph()
             return output.joined(separator: "\n\n")
         }
+    }
+
+    // MARK: - 字体标记
+
+    /// 字体标记的起止符。
+    ///
+    /// 形如 `\u{FFFB}FONT:FontName\u{FFFB}段落正文`。
+    /// 用 U+FFFB（OBJECT REPLACEMENT CHARACTER）与图片标记区分。
+    static let fontMarkerStart = "\u{FFFB}FONT:"
+    static let fontMarkerEnd = "\u{FFFB}"
+
+    /// 从 CSS 文本中解析 `class → font-family` 映射。
+    ///
+    /// 只处理最简单的规则形式：
+    /// `.cls { font-family: "Name", serif; }`
+    /// 不处理嵌套、媒体查询、@font-face 之外的复杂选择器。
+    static func parseFontRules(from css: String) -> [String: String] {
+        var result: [String: String] = [:]
+
+        // 按 } 切块，每块形如 ".cls { ... }"
+        let blocks = css.components(separatedBy: "}")
+        for block in blocks {
+            guard let braceIndex = block.firstIndex(of: "{") else { continue }
+            let selector = String(block[..<braceIndex])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = String(block[block.index(after: braceIndex)...])
+
+            // 只处理单个 class 选择器
+            guard selector.hasPrefix("."), !selector.contains(" "), !selector.contains(",") else {
+                continue
+            }
+            let className = String(selector.dropFirst())
+            guard let font = fontFamily(inCSS: body) else { continue }
+            result[className] = font
+        }
+
+        return result
+    }
+
+    /// 从 CSS 声明里取出 font-family 的第一个字体名。
+    static func fontFamily(inCSS css: String) -> String? {
+        let pattern = "font-family\s*:\s*([^;}]+)"
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive]
+        ) else { return nil }
+
+        let ns = css as NSString
+        guard let match = regex.firstMatch(
+            in: css,
+            range: NSRange(location: 0, length: ns.length)
+        ), match.numberOfRanges >= 2 else { return nil }
+
+        let raw = ns.substring(with: match.range(at: 1))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 取第一个字体：处理 "Name", serif 与 Name, serif 两种写法
+        let first = raw.components(separatedBy: ",").first ?? raw
+        var name = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        name = name.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !name.isEmpty else { return nil }
+        return name
+    }
+
+    /// 从文本中解析字体标记。
+    ///
+    /// - Returns: 每处标记的段落起始位置与字体名。
+    ///   标记本身在排版前会被剥离，返回的 offset 是剥离后文本中的位置。
+    static func fontReferences(in text: String) -> [(offset: Int, fontName: String)] {
+        var result: [(offset: Int, fontName: String)] = []
+        var stripped = ""
+        var cursor = text.startIndex
+
+        while let start = text.range(of: fontMarkerStart, range: cursor..<text.endIndex),
+              let end = text.range(of: fontMarkerEnd, range: start.upperBound..<text.endIndex) {
+            // 标记前的正文
+            stripped += text[cursor..<start.lowerBound]
+
+            let name = String(text[start.upperBound..<end.lowerBound])
+            result.append((offset: stripped.utf16.count, fontName: name))
+            cursor = end.upperBound
+        }
+
+        return result
+    }
+
+    /// 移除字体标记，返回纯正文。
+    static func strippingFontMarkers(_ text: String) -> String {
+        var result = text
+        while let start = result.range(of: fontMarkerStart),
+              let end = result.range(of: fontMarkerEnd, range: start.upperBound..<result.endIndex) {
+            result.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        return result
     }
 
     // MARK: - 图片标记
