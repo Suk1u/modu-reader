@@ -115,15 +115,28 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         // 合并整本为单个资源 —— Readium 的滚动是按资源的，
         // 不合并的话章末会停住，无法无缝滚到下一章。
         // 合并失败时回退原文件（仍可读，只是章间需要翻页）。
-        let mergedURL = bookDirectory.appendingPathComponent("merged.epub")
+        //
+        // 产物名带算法版本号：上一版合并文档缺少命名空间声明，
+        // 会让 WebKit 报「Namespace prefix epub for type」并只渲染到出错行。
+        // 换名字可以确保旧的坏产物不会被继续复用。
+        let mergedURL = bookDirectory.appendingPathComponent("merged-v\(EPUBMerger.version).epub")
+        try? FileManager.default.removeItem(
+            at: bookDirectory.appendingPathComponent("merged.epub")
+        )
+
         var readURL = epubURL
         if FileManager.default.fileExists(atPath: mergedURL.path) {
             readURL = mergedURL
-        } else {
+        } else if book.kind != .epubFixedLayout {
             do {
-                try EPUBMerger.buildMerged(from: epubURL, to: mergedURL)
+                let summary = try EPUBMerger.buildMerged(from: epubURL, to: mergedURL)
                 readURL = mergedURL
+                Diagnostics.log("ReadiumEPUB: 使用合并版（\(summary.chapterCount) 章 / \(summary.tocCount) 目录项）")
+            } catch EPUBMergeError.notNeeded {
+                Diagnostics.log("ReadiumEPUB: 单资源，无需合并")
             } catch {
+                // 半成品必须删掉，否则下次启动会被当成有效产物直接加载。
+                try? FileManager.default.removeItem(at: mergedURL)
                 Diagnostics.log("ReadiumEPUB: 合并失败，使用原文件 — \(error.localizedDescription)")
             }
         }

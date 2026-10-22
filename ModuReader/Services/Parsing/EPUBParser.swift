@@ -201,12 +201,18 @@ struct EPUBParser: Sendable {
         struct Item {
             var href: String
             var mediaType: String
+            /// 原样保留 `properties`。
+            /// 合并后重建 manifest 时必须带上它，否则 `cover-image`、
+            /// `scripted`、`remote-resources` 等声明会丢失，封面与脚本随之失效。
+            var properties: String
         }
         struct SpineRef {
             var idref: String
         }
         var manifest: [String: Item]
         var spine: [SpineRef]
+        /// spine 的 toc 属性（EPUB 2 指向 NCX 的 manifest id）。
+        var spineTocID: String?
         var title: String?
         var author: String?
         var language: String?
@@ -223,13 +229,18 @@ struct EPUBParser: Sendable {
         let package = try parsePackage(xml: xml)
 
         let manifest = package.manifest.mapValues {
-            PackageInfo.Item(href: $0.href, mediaType: $0.mediaType)
+            PackageInfo.Item(
+                href: $0.href,
+                mediaType: $0.mediaType,
+                properties: $0.properties
+            )
         }
         let spine = package.spine.map { PackageInfo.SpineRef(idref: $0.idref) }
 
         return PackageInfo(
             manifest: manifest,
             spine: spine,
+            spineTocID: package.spineTocID,
             title: package.title,
             author: package.author,
             language: package.language,
