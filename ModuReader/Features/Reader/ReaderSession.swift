@@ -73,6 +73,12 @@ final class ReaderSession {
     private var lastSavedAt: Date = .distantPast
     /// 进度保存的最小间隔。
     private let saveInterval: TimeInterval = 1.0
+    /// 进度界面刷新的最小间隔。
+    ///
+    /// 滚动模式下位置回调每秒触发几十次，每次都写 @Observable 属性
+    /// 会让 SwiftUI 持续重绘底部进度条，直接表现为滚动卡顿。
+    private let publishInterval: TimeInterval = 0.12
+    private var lastPublishAt: Date = .distantPast
 
     // MARK: - Init
 
@@ -158,34 +164,16 @@ final class ReaderSession {
     }
 
     func seek(toProgression progression: Double) {
-        // 用 totalProgression 反查章节：遍历章节，找到包含该进度的章节
+        // 直接把全书进度交给引擎解析。
+        //
+        // 不再用「字符总数 × 进度 → 章节 + 章内偏移」反查：
+        // Readium 引擎的 Chapter 里 globalStart / characterCount 是占位值
+        // （WebKit 排版没有字符偏移概念），据此换算会得到错误位置，
+        // 表现为「进度条拖到中间无效」。
         let target = max(0, min(1, progression))
-        let total = max(1, book.totalCharacters)
-        let targetGlobalOffset = Int(Double(total) * target)
-
-        let chapters = engine.chapters
-        guard !chapters.isEmpty else { return }
-
-        var targetChapter = 0
-        for (index, chapter) in chapters.enumerated() {
-            if chapter.globalStart <= targetGlobalOffset {
-                targetChapter = index
-            } else {
-                break
-            }
-        }
-
-        let chapter = chapters[targetChapter]
-        let offsetInChapter = max(0, targetGlobalOffset - chapter.globalStart)
         let locator = Locator(
-            href: chapter.filePath,
-            locations: Locations(
-                progression: chapter.characterCount > 0
-                    ? Double(offsetInChapter) / Double(chapter.characterCount)
-                    : 0,
-                totalProgression: target,
-                charOffset: offsetInChapter
-            )
+            href: "",
+            locations: Locations(totalProgression: target)
         )
 
         Task {
@@ -256,9 +244,20 @@ final class ReaderSession {
     }
 
     private func handleLocatorChange(_ locator: Locator) {
-        currentChapterIndex = engine.currentChapterIndex
-        totalProgression = engine.totalProgression
-        persist(locator: locator, progression: totalProgression, force: false)
+        // 章节变化立即同步（用于底部章节名）
+        let chapterIndex = engine.currentChapterIndex
+        if chapterIndex != currentChapterIndex {
+            currentChapterIndex = chapterIndex
+        }
+
+        // 进度百分比按固定间隔刷新，避免滚动时高频重绘
+        let now = Date()
+        if now.timeIntervalSince(lastPublishAt) >= publishInterval {
+            lastPublishAt = now
+            totalProgression = engine.totalProgression
+        }
+
+        persist(locator: locator, progression: engine.totalProgression, force: false)
     }
 
     private func persist(locator: Locator, progression: Double, force: Bool) {

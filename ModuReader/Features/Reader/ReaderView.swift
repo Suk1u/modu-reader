@@ -32,7 +32,7 @@ struct ReaderView: View {
                     .ignoresSafeArea()
 
                 ReaderCanvas(engine: session.engine.hostViewController)
-                    .ignoresSafeArea(edges: [.horizontal])
+                    .ignoresSafeArea()
 
                 chromeOverlay(session: session)
             } else {

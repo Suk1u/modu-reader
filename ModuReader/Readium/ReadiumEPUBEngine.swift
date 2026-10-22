@@ -69,6 +69,8 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private var chapterHrefs: [String] = []
     /// 全书位置数（Readium 的 positions 等价于「页」）。
     private var totalPositions = 0
+    /// 全书位置列表，用于按总进度精确定位。
+    private var positions: [ReadiumShared.Locator] = []
 
     // MARK: - Init
 
@@ -116,7 +118,19 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             publication: publication,
             initialLocation: initialReadiumLocator(from: initialLocator),
             config: EPUBNavigatorViewController.Configuration(
-                preferences: makePreferences(settings)
+                preferences: makePreferences(settings),
+                // 取消 Readium 默认的上下内容内边距（compact 34pt / regular 62pt）。
+                // 这些内边距会让正文顶部和底部各留一条空白，
+                // 在滚动模式下尤其明显 —— 用户看到的是「上下边界受限」。
+                contentInset: [
+                    .compact: (top: 0, bottom: 0),
+                    .regular: (top: 0, bottom: 0),
+                ],
+                // 滚动模式下禁用翻页手势。
+                // 纵向滚动时手指常带横向位移，会误触发翻页，产生跳页感。
+                // 该开关只在 scroll 生效（源码里是 `disable && settings.scroll`），
+                // 因此可以无条件设为 true，不影响分页模式的翻页。
+                disablePageTurnsWhileScrolling: true
             )
         )
         navigator.delegate = self
@@ -129,8 +143,9 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         navigator.didMove(toParent: self)
 
         // 统计全书位置数（页数）
-        if case .success(let positions) = await publication.positions() {
-            totalPositions = positions.count
+        if case .success(let list) = await publication.positions() {
+            positions = list
+            totalPositions = list.count
         }
         Diagnostics.log("ReadiumEPUB: 共 \(totalPositions) 个位置，\(chapters.count) 章")
 
@@ -303,6 +318,15 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     /// 应用 Locator → Readium Locator。
     private func initialReadiumLocator(from locator: Locator?) -> ReadiumShared.Locator? {
         guard let locator, let publication else { return nil }
+
+        // 只有总进度（例如进度条拖动）时，用 positions 找最接近的位置。
+        // 直接把 href 设为第一章会让 WebKit 跳到章首，而不是目标进度。
+        if locator.href.isEmpty,
+           let target = locator.locations.totalProgression,
+           !positions.isEmpty {
+            let index = Int((target * Double(positions.count - 1)).rounded())
+            return positions[max(0, min(positions.count - 1, index))]
+        }
 
         // 按 href 找到 readingOrder 里对应的资源
         let link: ReadiumShared.Link? = {

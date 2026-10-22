@@ -136,21 +136,28 @@ struct ReaderBottomBar: View {
             Slider(
                 value: Binding(
                     get: { scrubbingValue ?? session.totalProgression },
-                    set: { newValue in
-                        scrubbingValue = newValue
-                        if !isScrubbing {
-                            isScrubbing = true
-                        }
-                    }
+                    set: { scrubbingValue = $0 }
                 ),
                 in: 0...1,
                 onEditingChanged: { editing in
-                    if !editing {
+                    if editing {
+                        // 开始拖动：以当前位置为起点接管滑块
+                        scrubbingValue = session.totalProgression
+                        isScrubbing = true
+                    } else {
+                        // 结束拖动：提交跳转
+                        let target = scrubbingValue ?? session.totalProgression
                         isScrubbing = false
-                        if let value = scrubbingValue {
-                            session.seek(toProgression: value)
+                        session.seek(toProgression: target)
+
+                        // 保留一小段时间再交还给自动进度。
+                        // 立即清空会让滑块在引擎完成跳转前弹回旧位置，
+                        // 用户看到的就是「拖了但没动」。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            if !isScrubbing {
+                                scrubbingValue = nil
+                            }
                         }
-                        scrubbingValue = nil
                     }
                 }
             )
