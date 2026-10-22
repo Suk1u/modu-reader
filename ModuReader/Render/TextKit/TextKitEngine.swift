@@ -622,7 +622,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
             text: text,
             profile: profile,
             textColor: settings.theme.text,
-            bookDirectory: book.map { fileStore.bookDirectory(for: $0.id) }
+            bookDirectory: fileStore.bookDirectory(for: book.id)
         )
 
         // 用共享的 ChapterLayout 完成排版
