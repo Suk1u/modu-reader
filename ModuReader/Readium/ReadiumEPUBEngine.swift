@@ -95,7 +95,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         let publication = try await ReadiumStack.shared.openPublication(at: epubURL)
         self.publication = publication
 
-        chapters = makeChapters(from: publication)
+        chapters = await makeChapters(from: publication)
         chapterHrefs = publication.readingOrder.map { $0.anyURL.string }
 
         let navigator = try EPUBNavigatorViewController(
@@ -213,9 +213,12 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     ///
     /// 标题优先取目录（tableOfContents）里对应 href 的 title，
     /// 没有则用 readingOrder 的 title，再没有就用「第 N 章」。
-    private func makeChapters(from publication: ReadiumShared.Publication) -> [Chapter] {
+    private func makeChapters(from publication: ReadiumShared.Publication) async -> [Chapter] {
         var titles: [String: String] = [:]
-        collectTitles(from: publication.tableOfContents, into: &titles)
+        // tableOfContents 是异步方法，返回 Result<[Link], ReadError>
+        if case .success(let toc) = await publication.tableOfContents() {
+            collectTitles(from: toc, into: &titles)
+        }
 
         var globalStart = 0
         return publication.readingOrder.enumerated().map { index, link in
@@ -311,6 +314,10 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: ReadiumShared.Locator) {
         syncChapterIndex()
         onLocatorChange?(convert(readiumLocator: locator))
+    }
+
+    func navigator(_ navigator: Navigator, presentError error: NavigatorError) {
+        Diagnostics.log("ReadiumEPUB: navigator error \(error.localizedDescription)")
     }
 
     func navigator(_ navigator: VisualNavigator, didTapAt point: CGPoint) {
