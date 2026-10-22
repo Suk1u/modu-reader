@@ -119,18 +119,18 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             initialLocation: initialReadiumLocator(from: initialLocator),
             config: EPUBNavigatorViewController.Configuration(
                 preferences: makePreferences(settings),
+                // 滚动模式下禁用翻页手势。
+                // 纵向滚动时手指常带横向位移，会误触发翻页，产生跳页感。
+                // 该开关只在 scroll 生效（源码里是 `disable && settings.scroll`），
+                // 因此可以无条件设为 true，不影响分页模式的翻页。
+                disablePageTurnsWhileScrolling: true,
                 // 取消 Readium 默认的上下内容内边距（compact 34pt / regular 62pt）。
                 // 这些内边距会让正文顶部和底部各留一条空白，
                 // 在滚动模式下尤其明显 —— 用户看到的是「上下边界受限」。
                 contentInset: [
                     .compact: (top: 0, bottom: 0),
                     .regular: (top: 0, bottom: 0),
-                ],
-                // 滚动模式下禁用翻页手势。
-                // 纵向滚动时手指常带横向位移，会误触发翻页，产生跳页感。
-                // 该开关只在 scroll 生效（源码里是 `disable && settings.scroll`），
-                // 因此可以无条件设为 true，不影响分页模式的翻页。
-                disablePageTurnsWhileScrolling: true
+                ]
             )
         )
         navigator.delegate = self
