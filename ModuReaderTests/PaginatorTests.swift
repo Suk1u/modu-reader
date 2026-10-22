@@ -10,6 +10,7 @@ import UIKit
 @testable import ModuReader
 
 @Suite("分页器")
+@MainActor
 struct PaginatorTests {
 
     private func makeProfile(

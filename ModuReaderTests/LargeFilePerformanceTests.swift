@@ -14,6 +14,7 @@ import Foundation
 @testable import ModuReader
 
 @Suite("大文件性能")
+@MainActor
 struct LargeFilePerformanceTests {
 
     /// 构造一个约 5MB 的中文 TXT（带章节标题）。
