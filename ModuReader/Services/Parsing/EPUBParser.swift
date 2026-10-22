@@ -781,7 +781,7 @@ struct EPUBParser: Sendable {
             // 解析该元素使用的字体：优先内联 style，其次 class
             var font: String?
             if let inlineStyle = attributeDict["style"],
-               let parsed = Self.fontFamily(inCSS: inlineStyle) {
+               let parsed = EPUBParser.fontFamily(inCSS: inlineStyle) {
                 font = parsed
             } else if let className = attributeDict["class"] {
                 for token in className.split(separator: " ") {
@@ -844,7 +844,7 @@ struct EPUBParser: Sendable {
             if name == "style" {
                 inStyle = false
                 skipDepth = max(0, skipDepth - 1)
-                classFonts = Self.parseFontRules(from: styleBuffer)
+                classFonts = EPUBParser.parseFontRules(from: styleBuffer)
                 return
             }
 
