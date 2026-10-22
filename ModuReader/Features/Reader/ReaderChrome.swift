@@ -166,8 +166,12 @@ struct ReaderBottomBar: View {
     }
 
     private var chapterLabel: String {
-        // 显示「第 X/Y 页 · 章节名」，与阅读器页码语义一致
-        "第 \(session.currentPageNumber)/\(session.totalPageCount) 页 · \(session.currentChapterTitle)"
+        // WebKit 引擎（EPUB）没有固定页的概念，totalPageCount 为 0，
+        // 此时退化为「百分比 · 章节名」，避免显示「第 0/0 页」。
+        if session.totalPageCount > 0 {
+            return "第 \(session.currentPageNumber)/\(session.totalPageCount) 页 · \(session.currentChapterTitle)"
+        }
+        return "\(percentLabel(for: session.totalProgression)) · \(session.currentChapterTitle)"
     }
 
     private func percentLabel(for value: Double) -> String {
