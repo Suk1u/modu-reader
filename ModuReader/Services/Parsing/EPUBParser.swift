@@ -194,6 +194,49 @@ struct EPUBParser: Sendable {
         )
     }
 
+    // MARK: - 供合并器使用的解析入口
+
+    /// 合并器需要的包信息。
+    struct PackageInfo {
+        struct Item {
+            var href: String
+            var mediaType: String
+        }
+        struct SpineRef {
+            var idref: String
+        }
+        var manifest: [String: Item]
+        var spine: [SpineRef]
+        var title: String?
+        var author: String?
+        var language: String?
+        var identifier: String?
+    }
+
+    /// 解析 container.xml，返回 OPF 路径。
+    static func parseContainerPath(xml: Data) throws -> String {
+        try parseContainer(xml: xml)
+    }
+
+    /// 解析 OPF，返回合并器所需的精简结构。
+    static func parsePackageDocument(xml: Data) throws -> PackageInfo {
+        let package = try parsePackage(xml: xml)
+
+        let manifest = package.manifest.mapValues {
+            PackageInfo.Item(href: $0.href, mediaType: $0.mediaType)
+        }
+        let spine = package.spine.map { PackageInfo.SpineRef(idref: $0.idref) }
+
+        return PackageInfo(
+            manifest: manifest,
+            spine: spine,
+            title: package.title,
+            author: package.author,
+            language: package.language,
+            identifier: package.identifier
+        )
+    }
+
     // MARK: - 目录
 
     /// 规范化相对路径。

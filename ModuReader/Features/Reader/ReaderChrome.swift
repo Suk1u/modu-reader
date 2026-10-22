@@ -71,6 +71,8 @@ struct ReaderBottomBar: View {
     /// 拖动进度条时的临时值。拖动结束才提交，避免频繁 seek。
     @State private var scrubbingValue: Double?
     @State private var isScrubbing = false
+    /// 最近一次拖动提交的目标进度。引擎回报接近该值后交还自动进度。
+    @State private var pendingSeekTarget: Double?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -145,16 +147,17 @@ struct ReaderBottomBar: View {
                         scrubbingValue = session.totalProgression
                         isScrubbing = true
                     } else {
-                        // 结束拖动：提交跳转
+                        // 结束拖动：提交跳转，并等待引擎回报到位后再交还。
                         let target = scrubbingValue ?? session.totalProgression
                         isScrubbing = false
+                        pendingSeekTarget = target
                         session.seek(toProgression: target)
 
-                        // 保留一小段时间再交还给自动进度。
-                        // 立即清空会让滑块在引擎完成跳转前弹回旧位置，
-                        // 用户看到的就是「拖了但没动」。
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            if !isScrubbing {
+                        // 兜底：某些情况下引擎不会回报（例如目标就是当前位置），
+                        // 1.2 秒后强制交还，避免滑块永久锁死。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            if !isScrubbing, pendingSeekTarget != nil {
+                                pendingSeekTarget = nil
                                 scrubbingValue = nil
                             }
                         }
@@ -169,6 +172,18 @@ struct ReaderBottomBar: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 40, alignment: .trailing)
                 .accessibilityHidden(true)
+        }
+        // 引擎回报的位置接近拖动目标后，才把滑块交还给自动进度。
+        //
+        // 之前是固定延迟后直接清空 scrubbingValue，
+        // 若引擎回报的位置与拖动值有微小差异，滑块会「跳」一下 ——
+        // 那就是用户看到的现象。
+        .onChange(of: session.totalProgression) { _, newValue in
+            guard let target = pendingSeekTarget, !isScrubbing else { return }
+            if abs(newValue - target) < 0.02 {
+                pendingSeekTarget = nil
+                scrubbingValue = nil
+            }
         }
     }
 

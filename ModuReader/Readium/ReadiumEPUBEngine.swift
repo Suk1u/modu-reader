@@ -71,6 +71,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private var totalPositions = 0
     /// 全书位置列表，用于按总进度精确定位。
     private var positions: [ReadiumShared.Locator] = []
+    /// 合并版的目录链接（每个条目带 #chN 锚点）。
+    private var tocLinks: [ReadiumShared.Link] = []
+    /// 每章起始的全书进度，用于按进度反查章节。
+    private var chapterStarts: [Double] = []
 
     // MARK: - Init
 
@@ -108,7 +112,23 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             throw ReadiumStackError.invalidURL
         }
 
-        let publication = try await ReadiumStack.shared.openPublication(at: epubURL)
+        // 合并整本为单个资源 —— Readium 的滚动是按资源的，
+        // 不合并的话章末会停住，无法无缝滚到下一章。
+        // 合并失败时回退原文件（仍可读，只是章间需要翻页）。
+        let mergedURL = bookDirectory.appendingPathComponent("merged.epub")
+        var readURL = epubURL
+        if FileManager.default.fileExists(atPath: mergedURL.path) {
+            readURL = mergedURL
+        } else {
+            do {
+                try EPUBMerger.buildMerged(from: epubURL, to: mergedURL)
+                readURL = mergedURL
+            } catch {
+                Diagnostics.log("ReadiumEPUB: 合并失败，使用原文件 — \(error.localizedDescription)")
+            }
+        }
+
+        let publication = try await ReadiumStack.shared.openPublication(at: readURL)
         self.publication = publication
 
         chapters = await makeChapters(from: publication)
@@ -222,14 +242,29 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     func goToChapter(at index: Int) async {
-        guard let publication, publication.readingOrder.indices.contains(index) else { return }
-        let link = publication.readingOrder[index]
-        _ = await navigator?.go(to: link)
+        guard chapters.indices.contains(index) else { return }
+
+        // 合并版：章节是目录条目（带 #chN 锚点）
+        if tocLinks.indices.contains(index) {
+            _ = await navigator?.go(to: tocLinks[index])
+        } else if let publication, publication.readingOrder.indices.contains(index) {
+            _ = await navigator?.go(to: publication.readingOrder[index])
+        }
+
         syncChapterIndex()
         onLocatorChange?(currentLocator)
     }
 
     func go(to locator: Locator, animated: Bool) async {
+        // 目录条目（合并版的 #chN 锚点）优先按 Link 跳转
+        if !locator.href.isEmpty,
+           let link = tocLinks.first(where: { $0.href == locator.href }) {
+            _ = await navigator?.go(to: link)
+            syncChapterIndex()
+            onLocatorChange?(currentLocator)
+            return
+        }
+
         guard let readium = initialReadiumLocator(from: locator) else { return }
         _ = await navigator?.go(to: readium)
         syncChapterIndex()
@@ -251,19 +286,47 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     /// 标题优先取目录（tableOfContents）里对应 href 的 title，
     /// 没有则用 readingOrder 的 title，再没有就用「第 N 章」。
     private func makeChapters(from publication: ReadiumShared.Publication) async -> [Chapter] {
-        var titles: [String: String] = [:]
-        // tableOfContents 是异步方法，返回 Result<[Link], ReadError>
-        if case .success(let toc) = await publication.tableOfContents() {
-            collectTitles(from: toc, into: &titles)
+        var toc: [ReadiumShared.Link] = []
+        if case .success(let links) = await publication.tableOfContents() {
+            toc = flattenTOC(links)
         }
+
+        // 合并版只有一个 readingOrder 条目，章节必须从目录派生。
+        if publication.readingOrder.count == 1, toc.count > 1 {
+            var result: [Chapter] = []
+            var starts: [Double] = []
+            var links: [ReadiumShared.Link] = []
+
+            for (index, link) in toc.enumerated() {
+                let located = await publication.locate(link)
+                let progression = located?.locations.totalProgression
+                    ?? (Double(index) / Double(max(1, toc.count)))
+                result.append(
+                    Chapter(
+                        id: index,
+                        title: (link.title?.isEmpty == false ? link.title! : "第 \(index + 1) 章"),
+                        filePath: link.href,
+                        globalStart: index,
+                        characterCount: 1
+                    )
+                )
+                starts.append(progression)
+                links.append(link)
+            }
+
+            chapterStarts = starts
+            tocLinks = links
+            return result
+        }
+
+        // 未合并：按 readingOrder 生成，标题取自目录
+        var titles: [String: String] = [:]
+        collectTitles(from: toc, into: &titles)
 
         var globalStart = 0
         return publication.readingOrder.enumerated().map { index, link in
             let href = link.anyURL.string
-            let title = titles[href]
-                ?? link.title
-                ?? "第 \(index + 1) 章"
-            // EPUB 由 WebKit 排版，这里不需要字符数；给 1 避免除零
+            let title = titles[href] ?? link.title ?? "第 \(index + 1) 章"
             let chapter = Chapter(
                 id: index,
                 title: title,
@@ -276,6 +339,19 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }
     }
 
+    /// 递归展平目录树。
+    private func flattenTOC(_ links: [ReadiumShared.Link]) -> [ReadiumShared.Link] {
+        var result: [ReadiumShared.Link] = []
+        for link in links {
+            if link.children.isEmpty {
+                result.append(link)
+            } else {
+                result.append(contentsOf: flattenTOC(link.children))
+            }
+        }
+        return result
+    }
+
     private func collectTitles(from links: [ReadiumShared.Link], into map: inout [String: String]) {
         for link in links {
             if let title = link.title, !title.isEmpty {
@@ -285,8 +361,22 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }
     }
 
-    /// 根据当前 locator 的 href 同步章节序号。
+    /// 同步当前章节序号。
+    ///
+    /// 合并版的所有章节共用一个 href，无法按 href 区分，
+    /// 因此改用「章节起始进度」做二分查找。
     private func syncChapterIndex() {
+        if !chapterStarts.isEmpty {
+            let progression = navigator?.currentLocation?
+                .locations.totalProgression ?? 0
+            var index = 0
+            for (i, start) in chapterStarts.enumerated() where start <= progression + 1e-9 {
+                index = i
+            }
+            currentChapterIndex = index
+            return
+        }
+
         guard let href = navigator?.currentLocation?.href.string,
               let index = chapterHrefs.firstIndex(of: href) else { return }
         currentChapterIndex = index
