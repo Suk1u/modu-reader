@@ -174,3 +174,40 @@ extension ChapterLayout {
         }
     }
 }
+
+// MARK: - 测试与便捷入口
+
+extension Paginator {
+
+    /// 便捷入口：给定纯文本直接分页。
+    ///
+    /// 内部完成「构造富文本 → 排版 → 切页」全流程。
+    /// 供测试与不需要复用排版的场景使用。
+    static func paginate(
+        text: String,
+        profile: TypographyProfile,
+        textColor: RGBColor,
+        chapterIndex: Int
+    ) -> PaginatedChapter {
+        let attributed = TextKitEngine.makeChapterAttributed(
+            text: text,
+            profile: profile,
+            textColor: textColor
+        )
+
+        let layout = ChapterLayout()
+        layout.prepare(attributed: attributed, width: profile.contentWidth)
+
+        let result = paginate(
+            layout: layout,
+            pageHeight: profile.contentHeight,
+            totalLength: attributed.length
+        )
+
+        return PaginatedChapter(
+            chapterIndex: chapterIndex,
+            characterCount: attributed.length,
+            slices: result.slices
+        )
+    }
+}
