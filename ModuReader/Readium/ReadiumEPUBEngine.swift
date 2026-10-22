@@ -166,7 +166,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }()
 
         return EPUBPreferences(
-            backgroundColor: ReadiumShared.Color(hex: settings.theme.background.hexString),
+            backgroundColor: ReadiumNavigator.Color(hex: settings.theme.background.hexString),
             fontFamily: settings.useBookFont ? nil : settings.fontFamily.readiumFontFamily,
             fontSize: settings.useBookFont ? nil : Double(settings.fontSize) / baseFontSize,
             lineHeight: settings.lineHeightMultiple,
@@ -175,7 +175,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             paragraphSpacing: Double(settings.paragraphSpacing) / Double(max(1, settings.fontSize)),
             publisherStyles: settings.useBookFont,
             scroll: settings.readingMode == .scroll,
-            textColor: ReadiumShared.Color(hex: settings.theme.text.hexString),
+            textColor: ReadiumNavigator.Color(hex: settings.theme.text.hexString),
             theme: theme
         )
     }
