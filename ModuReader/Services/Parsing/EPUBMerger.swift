@@ -89,7 +89,7 @@ enum EPUBMerger {
 
             let anchor = "ch\(index)"
             chapterAnchors.append(anchor)
-            chapterTitles.append(item.id)
+            chapterTitles.append(itemRef.idref)
             sections.append("<section id=\"\(anchor)\">\n\(rewritten)\n</section>")
         }
 
