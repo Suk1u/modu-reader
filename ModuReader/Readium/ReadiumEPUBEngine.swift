@@ -44,11 +44,17 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     /// 承载视图（引擎自身）。
     var hostViewController: UIViewController { self }
 
-    /// 全书总页数。WebKit 引擎没有页的概念，返回 0。
-    var totalPageCountValue: Int { 0 }
+    /// 全书总页数。
+    ///
+    /// Readium 的 `positions()` 按资源长度切分为等长位置，
+    /// 与 Apple Books 的页码语义一致。
+    var totalPageCountValue: Int { totalPositions }
 
-    /// 当前页码。WebKit 引擎没有页的概念，返回 0。
-    var currentPageNumber: Int { 0 }
+    /// 当前页码（1 起）。
+    var currentPageNumber: Int {
+        guard let position = navigator?.currentLocation?.locations.position else { return 0 }
+        return position
+    }
 
     /// EPUB 自带字体由出版方 CSS 直接生效，无需开关。
     var hasBookFont: Bool { false }
@@ -61,6 +67,8 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private var publication: ReadiumShared.Publication?
     private var navigator: EPUBNavigatorViewController?
     private var chapterHrefs: [String] = []
+    /// 全书位置数（Readium 的 positions 等价于「页」）。
+    private var totalPositions = 0
 
     // MARK: - Init
 
@@ -84,9 +92,15 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         self.book = book
         self.settings = settings
 
-        // EPUB 原文件在导入时已复制为 Books/<id>/source.epub
-        let epubURL = fileStore.bookDirectory(for: book.id)
-            .appendingPathComponent("source.epub")
+        // EPUB 用原始文件；TXT / Markdown 用导入时生成的 EPUB。
+        let bookDirectory = fileStore.bookDirectory(for: book.id)
+        let epubURL: URL
+        switch book.kind {
+        case .epubReflowable, .epubFixedLayout:
+            epubURL = bookDirectory.appendingPathComponent("source.epub")
+        default:
+            epubURL = try TextEPUBBuilder.buildIfNeeded(fileStore: fileStore, book: book)
+        }
 
         guard FileManager.default.fileExists(atPath: epubURL.path) else {
             throw ReadiumStackError.invalidURL
@@ -113,6 +127,12 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         navigator.view.autoresizingMask = [UIView.AutoresizingMask.flexibleWidth, UIView.AutoresizingMask.flexibleHeight]
         view.addSubview(navigator.view)
         navigator.didMove(toParent: self)
+
+        // 统计全书位置数（页数）
+        if case .success(let positions) = await publication.positions() {
+            totalPositions = positions.count
+        }
+        Diagnostics.log("ReadiumEPUB: 共 \(totalPositions) 个位置，\(chapters.count) 章")
 
         syncChapterIndex()
         view.backgroundColor = settings.theme.uiBackgroundColor
@@ -146,6 +166,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }()
 
         return EPUBPreferences(
+            backgroundColor: ReadiumShared.Color(hex: settings.theme.background.hexString),
             fontFamily: settings.useBookFont ? nil : settings.fontFamily.readiumFontFamily,
             fontSize: settings.useBookFont ? nil : Double(settings.fontSize) / baseFontSize,
             lineHeight: settings.lineHeightMultiple,
@@ -154,6 +175,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             paragraphSpacing: Double(settings.paragraphSpacing) / Double(max(1, settings.fontSize)),
             publisherStyles: settings.useBookFont,
             scroll: settings.readingMode == .scroll,
+            textColor: ReadiumShared.Color(hex: settings.theme.text.hexString),
             theme: theme
         )
     }

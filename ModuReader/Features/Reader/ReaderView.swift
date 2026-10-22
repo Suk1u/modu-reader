@@ -126,18 +126,13 @@ struct ReaderView: View {
         let fileStore = appContainer.fileStore
         let settings = appContainer.globalSettings
 
-        // EPUB 走 Readium（WKWebView，保留出版方 CSS 与内嵌字体）；
-        // TXT / Markdown 走 TextKit（更快、分页更精确）。
-        let engine: any RenderEngine
-        switch book.kind {
-        case .epubReflowable, .epubFixedLayout:
-            engine = ReadiumEPUBEngine(fileStore: fileStore)
-        default:
-            engine = TextKitEngine(
-                fileStore: fileStore,
-                pageCache: appContainer.pageCache
-            )
-        }
+        // 全部走 Readium（WKWebView）：
+        // - EPUB 直接加载原始文件，保留出版方 CSS 与内嵌字体
+        // - TXT / Markdown 在打开时打包成标准 EPUB 再加载
+        //
+        // 统一渲染路径后，连续滚动、页数统计、主题配色、字体回退
+        // 在所有格式上表现一致，不再维护两套排版实现。
+        let engine: any RenderEngine = ReadiumEPUBEngine(fileStore: fileStore)
         let session = ReaderSession(
             book: book,
             engine: engine,

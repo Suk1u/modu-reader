@@ -33,6 +33,14 @@ struct RGBColor: Hashable, Sendable {
     var uiColor: UIColor {
         UIColor(red: red, green: green, blue: blue, alpha: alpha)
     }
+
+    /// `#RRGGBB` 形式，供 Readium 的 `Color(hex:)` 使用。
+    var hexString: String {
+        let r = Int((red * 255).rounded())
+        let g = Int((green * 255).rounded())
+        let b = Int((blue * 255).rounded())
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
 }
 
 /// 阅读主题。
