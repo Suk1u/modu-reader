@@ -16,9 +16,9 @@
 //
 
 import Foundation
-import ReadiumShared
-import ReadiumStreamer
-import ReadiumNavigator
+@preconcurrency import ReadiumShared
+@preconcurrency import ReadiumStreamer
+@preconcurrency import ReadiumNavigator
 
 /// Readium 服务容器。
 @MainActor

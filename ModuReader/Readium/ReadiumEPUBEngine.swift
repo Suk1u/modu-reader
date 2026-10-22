@@ -15,8 +15,8 @@
 //
 
 import UIKit
-import ReadiumShared
-import ReadiumNavigator
+@preconcurrency import ReadiumShared
+@preconcurrency import ReadiumNavigator
 
 @MainActor
 final class ReadiumEPUBEngine: UIViewController, RenderEngine {
