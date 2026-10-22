@@ -237,6 +237,7 @@ final class ImportService {
             kind: parsed.isFixedLayout ? .epubFixedLayout : .epubReflowable,
             formatExtension: "epub",
             relativePath: bookID.uuidString,
+            coverPath: parsed.coverFileName,
             totalCharacters: parsed.totalCharacters,
             chapterCount: parsed.chapters.count,
             lastOpenedAt: Date(),

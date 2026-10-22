@@ -66,6 +66,8 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
     /// 当前章分页结果。
     private var currentPagination: PaginatedChapter?
+    /// 当前章的整章排版。分页与渲染共用。
+    private var currentLayout: ChapterLayout?
     /// 当前页在章内的序号。
     private var currentPageIndex: Int = 0
     /// 最近一次分页使用的指纹，用于判断是否需要重排。
@@ -358,96 +360,46 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let text = try fileStore.readChapter(for: book.id, fileName: chapter.filePath)
         let profile = currentProfile() ?? defaultProfile()
 
-        // 构造带图片 attachment 的富文本。
-        // 分页与渲染都用这一份，保证区间与几何完全一致。
+        // 构造带图片 attachment 的富文本 —— 分页与渲染共用这一份。
+        let attributed = Self.makeChapterAttributed(
+            text: text,
+            profile: profile,
+            textColor: settings.theme.text
+        )
 
-        // 缓存命中直接使用，避免重复分页（二次打开同一章应在 50ms 内）
-        let pagination: PaginatedChapter
-        if let cached = pageCache?.load(
-            bookID: book.id,
+        // 用共享的 ChapterLayout 完成整章排版
+        let layout = ChapterLayout()
+        layout.prepare(attributed: attributed, width: profile.contentWidth)
+
+        // 分页只读这份排版的 Y 坐标
+        let result = Paginator.paginate(
+            layout: layout,
+            pageHeight: profile.contentHeight,
+            totalLength: attributed.length
+        )
+
+        let pagination = PaginatedChapter(
             chapterIndex: index,
-            profile: profile
-        ) {
-            pagination = cached
-        } else {
-            // 分页用纯文本：图片标记替换为等长换行占位。
-            //
-            // 为什么不在分页时插入 NSTextAttachment：
-            // CTFramesetter 需要 attachment.image 才能算高度，
-            // 而后台队列构造 UIImage 有线程风险，且大图会拖慢分页。
-            // 分页阶段按「图片占一行」预留空间，渲染阶段用真实 attachment，
-            // 两者字符数一致，行数偏差仅在一行以内，可接受。
-            let paginationText = Self.paginationText(from: text)
-            pagination = await paginateOffMain(
-                text: paginationText,
-                profile: profile,
-                textColor: settings.theme.text,
-                chapterIndex: index
-            )
-            pageCache?.store(pagination, bookID: book.id, profile: profile)
-        }
+            characterCount: attributed.length,
+            slices: result.slices
+        )
 
         currentChapterIndex = index
         currentChapterText = text
+        currentLayout = layout
         currentPagination = pagination
         currentPageIndex = 0
         lastProfile = profile
-    }
-
-    /// 构造用于分页的文本。
-    ///
-    /// 图片标记替换为等长换行占位：保持字符数不变，
-    /// 同时让图片在排版上占据独立行（而不是挤在一行文字中间）。
-    private static func paginationText(from text: String) -> String {
-        let references = EPUBParser.imageReferences(in: text)
-        guard !references.isEmpty else { return text }
-
-        let mutable = NSMutableString(string: text)
-        for reference in references.reversed() {
-            let length = reference.range.length
-            // 首字符用换行，其余用零宽空格，总长度不变
-            var blank = "\n"
-            if length > 1 {
-                blank += String(repeating: "\u{200B}", count: length - 1)
-            }
-            mutable.replaceCharacters(in: reference.range, with: blank)
-        }
-        return mutable as String
-    }
-
-    /// 在后台队列分页，主线程只接收结果。
-    ///
-    /// 参数与返回值全部是 `Sendable` 值类型，满足 Swift 6 严格并发检查。
-    private func paginateOffMain(
-        text: String,
-        profile: TypographyProfile,
-        textColor: RGBColor,
-        chapterIndex: Int
-    ) async -> PaginatedChapter {
-        await withCheckedContinuation { continuation in
-            paginationQueue.async {
-                let result = Paginator.paginate(
-                    text: text,
-                    profile: profile,
-                    textColor: textColor,
-                    chapterIndex: chapterIndex
-                )
-                continuation.resume(returning: result)
-            }
-        }
     }
 
     // MARK: - Rendering
 
     private func renderCurrentPage() {
         guard let pagination = currentPagination,
-              let attributed = attributedText(for: pagination),
+              let layout = currentLayout,
               pagination.slices.indices.contains(currentPageIndex) else {
             return
         }
-
-        let contentSize = contentSizeForCurrentLayout()
-        guard contentSize.width > 0, contentSize.height > 0 else { return }
 
         // 保留当前页与前后页
         pagePool.recycle(except: [-1, 0, 1])
@@ -458,65 +410,46 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
             let pageView = pagePool.view(for: relative, in: contentView)
             pageView.frame = contentView.bounds
-            pageView.configure(
-                chapterText: attributed,
-                slice: targetSlice,
-                contentSize: contentSize
-            )
+            pageView.configure(layout: layout, slice: targetSlice)
             pageView.isHidden = relative != 0
         }
     }
 
     /// 让可见页贴合当前 bounds（不重新分页）。
     private func layoutVisiblePages() {
-        let contentSize = contentSizeForCurrentLayout()
-        guard contentSize.width > 0, contentSize.height > 0 else { return }
-        guard let attributed = attributedText(for: currentPagination) else { return }
+        guard let layout = currentLayout else { return }
 
         for relative in [-1, 0, 1] {
             let targetIndex = currentPageIndex + relative
             guard let slice = currentPagination?.slices[safe: targetIndex] else { continue }
             let pageView = pagePool.view(for: relative, in: contentView)
             pageView.frame = contentView.bounds
-            pageView.configure(
-                chapterText: attributed,
-                slice: slice,
-                contentSize: contentSize
-            )
+            pageView.configure(layout: layout, slice: slice)
             pageView.isHidden = relative != 0
         }
     }
 
-    /// 构造当前章的富文本。每次渲染时按需构造，不长期持有。
+    /// 构造整章富文本（含图片 attachment）。
     ///
-    /// 图片标记会被替换为等长空白：分页是基于这个「去掉标记」的文本算的，
-    /// 渲染必须用同一份文本，否则分页边界会与渲染错位。
-    private func attributedText(for pagination: PaginatedChapter?) -> NSAttributedString? {
-        guard pagination != nil, !currentChapterText.isEmpty else {
-            return currentChapterText.isEmpty ? NSAttributedString(string: "") : nil
-        }
+    /// 分页与渲染共用这一份，保证字符数与行几何完全一致。
+    ///
+    /// 图片处理：把 U+FFFC 图片标记替换为
+    /// 「1 个 NSTextAttachment + (N-1) 个零宽空格」，
+    /// 保持文本长度不变 —— 分页区间基于原始长度计算。
+    static func makeChapterAttributed(
+        text: String,
+        profile: TypographyProfile,
+        textColor: RGBColor
+    ) -> NSAttributedString {
+        let baseAttributes = profile.attributes(textColor: textColor)
+        let references = EPUBParser.imageReferences(in: text)
 
-        let profile = currentProfile() ?? defaultProfile()
-        let baseAttributes = profile.attributes(textColor: settings.theme.text)
-        let references = EPUBParser.imageReferences(in: currentChapterText)
-
-        // 无图片：直接构造纯文本
         guard !references.isEmpty else {
-            return NSAttributedString(
-                string: currentChapterText,
-                attributes: baseAttributes
-            )
+            return NSAttributedString(string: text, attributes: baseAttributes)
         }
 
-        // 有图片：把标记替换为 NSTextAttachment。
-        //
-        // 关键：替换后文本**长度必须保持不变**，
-        // 因为分页区间是基于含标记的原文计算的。
-        // 一个 attachment 恰好占 1 个字符（U+FFFC），
-        // 而标记占 N 个字符 —— 因此把标记区间替换成
-        // 「1 个 attachment + (N-1) 个零宽字符」以保持长度。
         let result = NSMutableAttributedString(
-            string: currentChapterText,
+            string: text,
             attributes: baseAttributes
         )
 
@@ -524,11 +457,10 @@ final class TextKitEngine: UIViewController, RenderEngine {
             let markerLength = reference.range.length
             guard markerLength > 0 else { continue }
 
-            guard let attachment = Self.makeAttachment(
+            guard let attachment = makeAttachment(
                 path: reference.source,
                 maxWidth: profile.contentWidth
             ) else {
-                // 图片加载失败：用等长空白占位，保持偏移不变
                 let blank = String(repeating: "\u{2007}", count: markerLength)
                 result.replaceCharacters(in: reference.range, with: blank)
                 continue
@@ -536,7 +468,6 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
             let replacement = NSMutableAttributedString(attachment: attachment)
             if markerLength > 1 {
-                // 补足剩余长度，用零宽空格（不参与排版宽度）
                 replacement.append(
                     NSAttributedString(
                         string: String(repeating: "\u{200B}", count: markerLength - 1),
@@ -620,23 +551,35 @@ final class TextKitEngine: UIViewController, RenderEngine {
         let offset = currentPageSlice?.range.location ?? 0
         let chapterIndex = currentChapterIndex
         let text = currentChapterText
-        let color = settings.theme.text
 
-        Task { [weak self] in
-            guard let self else { return }
-            let pagination = await self.paginateOffMain(
-                text: text,
-                profile: profile,
-                textColor: color,
-                chapterIndex: chapterIndex
-            )
-            // 分页期间用户可能已切换章节，丢弃过期结果
-            guard self.currentChapterIndex == chapterIndex else { return }
-            self.currentPagination = pagination
-            self.lastProfile = profile
-            self.currentPageIndex = pagination.pageIndex(forCharacterOffset: offset)
-            self.renderCurrentPage()
-        }
+        // 排版与分页都在主线程完成：ChapterLayout 持有 TextKit 对象，
+        // 不能跨队列。章节已限制在 12,000 字以内，这里是毫秒级。
+        let attributed = Self.makeChapterAttributed(
+            text: text,
+            profile: profile,
+            textColor: settings.theme.text
+        )
+
+        let layout = ChapterLayout()
+        layout.prepare(attributed: attributed, width: profile.contentWidth)
+
+        let result = Paginator.paginate(
+            layout: layout,
+            pageHeight: profile.contentHeight,
+            totalLength: attributed.length
+        )
+
+        let pagination = PaginatedChapter(
+            chapterIndex: chapterIndex,
+            characterCount: attributed.length,
+            slices: result.slices
+        )
+
+        currentLayout = layout
+        currentPagination = pagination
+        lastProfile = profile
+        currentPageIndex = pagination.pageIndex(forCharacterOffset: offset)
+        renderCurrentPage()
     }
 
     // MARK: - Gestures

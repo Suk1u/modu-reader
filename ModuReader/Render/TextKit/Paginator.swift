@@ -2,134 +2,175 @@
 //  Paginator.swift
 //  ModuReader
 //
-//  分页器。用 CoreText 的 CTFramesetter 计算每页字符区间。
+//  分页器。基于 `ChapterLayout` 的排版结果计算页区间。
 //
-//  ── 为什么分页用 CTFramesetter，渲染用 TextKit 2 ──
+//  ── 为什么分页与渲染必须共用同一份排版 ──
 //
-//  TextKit 2 的 NSTextLayoutManager 设计上依赖 viewport 驱动：
-//  - 容器高度设为页高时，只能拿到第一页的 fragment，
-//    后续内容需要 viewport 推进才会布局
-//  - 容器高度设为极大值时，TextKit 会把每段的高度算成容器高度，
-//    实测 10 万字章节的 fragment Y 累加到 19525，分页结果完全错误
-//  - 对 documentRange 调 ensureLayout 会强制布局全文，
-//    10 万字实测耗时 13.8 秒
+//  之前分页用 CTFramesetter、渲染用 TextKit 2。两者虽都基于 CoreText，
+//  但对段落间距、首行缩进、attachment 高度的解释有细微差异。
+//  这些差异累积几十行后，分页算出的「第 N 页首行」与渲染实际画出的
+//  位置就对不上 —— 表现为空白页、文字错位、进度记录不准。
 //
-//  CTFramesetter 是纯计算 API：给定矩形，返回「能放下多少字符」。
-//  结果确定、无需 UI 环境、10 万字约 0.7 秒。
-//
-//  两者都基于 CoreText 的断行引擎，且使用同一份 NSAttributedString
-//  与相同宽度，因此分页边界与 TextKit 2 的渲染结果一致。
-//
-//  ── 渲染为什么仍用 TextKit 2 ──
-//  NSTextAttachment 在 TextKit 2 里能正确参与行高计算与排版，
-//  图片可以实现真正的图文混排（挤压文字行），而非叠加在文字上方。
+//  现在：一次排版 → 分页只读 Y 坐标 → 渲染按同一 Y 坐标绘制。
+//  不存在任何几何偏差。
 //
 
-import Foundation
-import CoreText
 import UIKit
 
-/// 分页器。纯函数，无状态，可在任意后台队列调用。
+/// 分页结果。
+struct PaginationResult: Sendable {
+    var slices: [PageSlice]
+    /// 整章排版高度。
+    var contentHeight: CGFloat
+}
+
+/// 分页器。
+@MainActor
 enum Paginator {
 
-    /// 对一章文本分页。
+    /// 单章最大字符数。
+    ///
+    /// 超过此长度的章节在导入时已被切分为虚拟块（见 `ChapterSplitter`），
+    /// 这里是第二道防线：万一有超长章节漏网，按此长度二次切分，
+    /// 避免一次排版几十万字导致卡顿。
+    static let maxChapterCharacters = 12_000
+
+    /// 对已排版的章节计算页区间。
     ///
     /// - Parameters:
-    ///   - attributedText: 已应用排版属性的章节文本。
-    ///   - profile: 排版指纹（决定可用尺寸）。
-    ///   - chapterIndex: 章节序号。
-    /// - Returns: 分页快照。
+    ///   - layout: 已完成的整章排版。
+    ///   - pageHeight: 页高（已扣除上下内边距）。
+    ///   - totalLength: 章节字符总数。
+    /// - Returns: 页区间列表。
     static func paginate(
-        attributedText: NSAttributedString,
-        profile: TypographyProfile,
-        chapterIndex: Int
-    ) -> PaginatedChapter {
-        let length = attributedText.length
-        guard length > 0 else {
-            return PaginatedChapter(
-                chapterIndex: chapterIndex,
-                characterCount: 0,
-                slices: [PageSlice(range: NSRange(location: 0, length: 0), pageIndex: 0)]
+        layout: ChapterLayout,
+        pageHeight: CGFloat,
+        totalLength: Int
+    ) -> PaginationResult {
+        guard layout.isReady, totalLength > 0, pageHeight > 0 else {
+            return PaginationResult(
+                slices: [PageSlice(range: NSRange(location: 0, length: max(0, totalLength)), pageIndex: 0)],
+                contentHeight: 0
             )
         }
-
-        let pageSize = CGSize(
-            width: max(1, profile.contentWidth),
-            height: max(1, profile.contentHeight)
-        )
-
-        let framesetter = CTFramesetterCreateWithAttributedString(
-            attributedText as CFAttributedString
-        )
 
         var slices: [PageSlice] = []
-        var start = 0
         var pageIndex = 0
+        var pageStart = 0
+        var pageTop: CGFloat = 0
+        var hasOpenPage = false
 
-        while start < length {
-            let pageRect = CGRect(origin: .zero, size: pageSize)
-            let path = CGPath(rect: pageRect, transform: nil)
+        layout.enumerateLines { line in
+            let lineTop = line.minY
+            let lineBottom = line.maxY
+            let lineStart = line.range.location
+            let lineEnd = line.range.location + line.range.length
 
-            let frame = CTFramesetterCreateFrame(
-                framesetter,
-                CFRange(location: start, length: 0),
-                path,
-                nil
-            )
+            guard lineStart >= pageStart else { return }
 
-            let visible = CTFrameGetVisibleStringRange(frame)
-
-            // 防御：任何情况下都必须推进，否则死循环
-            guard visible.length > 0 else {
-                slices.append(
-                    PageSlice(
-                        range: NSRange(location: start, length: length - start),
-                        pageIndex: pageIndex
-                    )
-                )
-                break
+            if !hasOpenPage {
+                hasOpenPage = true
+                pageTop = lineTop
             }
 
-            let sliceLength = min(visible.length, length - start)
-            slices.append(
-                PageSlice(
-                    range: NSRange(location: start, length: sliceLength),
-                    pageIndex: pageIndex,
-                    // 该页首字符在整章中的字符偏移。
-                    // 渲染层据此定位（TextKit 2 里用字符位置而非 Y 坐标更可靠）。
-                    yOffset: 0
+            // 这一行放不下 → 结束当前页
+            if lineBottom - pageTop > pageHeight, lineStart > pageStart {
+                slices.append(
+                    PageSlice(
+                        range: NSRange(location: pageStart, length: lineStart - pageStart),
+                        pageIndex: pageIndex,
+                        yOffset: pageTop
+                    )
                 )
-            )
+                pageIndex += 1
+                pageStart = lineStart
+                pageTop = lineTop
+            }
 
-            start += sliceLength
-            pageIndex += 1
+            // 单行超过整页：独占一页，防止死循环
+            if lineBottom - lineTop > pageHeight {
+                let end = min(totalLength, lineEnd)
+                if end > pageStart {
+                    slices.append(
+                        PageSlice(
+                            range: NSRange(location: pageStart, length: end - pageStart),
+                            pageIndex: pageIndex,
+                            yOffset: pageTop
+                        )
+                    )
+                    pageIndex += 1
+                    pageStart = end
+                }
+                hasOpenPage = false
+            }
         }
 
-        return PaginatedChapter(
-            chapterIndex: chapterIndex,
-            characterCount: length,
-            slices: slices
-        )
+        // 收尾
+        if pageStart < totalLength {
+            slices.append(
+                PageSlice(
+                    range: NSRange(location: pageStart, length: totalLength - pageStart),
+                    pageIndex: pageIndex,
+                    yOffset: pageTop
+                )
+            )
+        }
+
+        if slices.isEmpty {
+            slices.append(
+                PageSlice(range: NSRange(location: 0, length: totalLength), pageIndex: 0)
+            )
+        }
+
+        return PaginationResult(slices: slices, contentHeight: layout.contentHeight)
+    }
+}
+
+// MARK: - 行枚举
+
+extension ChapterLayout {
+
+    /// 一行排版信息。
+    struct Line {
+        var range: NSRange
+        var minY: CGFloat
+        var maxY: CGFloat
     }
 
-    /// 对纯文本分页。
+    /// 枚举整章所有行。
     ///
-    /// 跨队列调用的入口：参数全部是 `Sendable` 值类型，
-    /// `NSAttributedString` 在内部构造，不跨越队列边界。
-    static func paginate(
-        text: String,
-        profile: TypographyProfile,
-        textColor: RGBColor,
-        chapterIndex: Int
-    ) -> PaginatedChapter {
-        let attributed = NSAttributedString(
-            string: text,
-            attributes: profile.attributes(textColor: textColor)
-        )
-        return paginate(
-            attributedText: attributed,
-            profile: profile,
-            chapterIndex: chapterIndex
-        )
+    /// 行的绝对 Y = fragment 的 Y + 行在 fragment 内的相对 Y。
+    /// `typographicBounds.origin` 是相对所属 fragment 的偏移。
+    func enumerateLines(_ body: (Line) -> Void) {
+        guard isReady else { return }
+        let totalLength = contentStorage.attributedString?.length ?? 0
+
+        layoutManager.enumerateTextLayoutFragments(
+            from: nil,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let fragmentTop = fragment.layoutFragmentFrame.minY
+
+            for line in fragment.textLineFragments {
+                let bounds = line.typographicBounds
+                guard bounds.height > 0 else { continue }
+
+                let range = line.characterRange
+                guard range.location >= 0,
+                      range.length > 0,
+                      range.location + range.length <= totalLength else {
+                    continue
+                }
+
+                body(
+                    Line(
+                        range: range,
+                        minY: fragmentTop + bounds.minY,
+                        maxY: fragmentTop + bounds.minY + bounds.height
+                    )
+                )
+            }
+            return true
+        }
     }
 }

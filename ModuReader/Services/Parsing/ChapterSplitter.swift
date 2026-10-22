@@ -25,7 +25,15 @@ enum ChapterSplitter {
     static let fallbackTitle = "正文"
 
     /// 单章字符上限，超过则二次分块。
-    static let maxChapterCharacters = 100_000
+    /// 单章字符上限。
+    ///
+    /// 超过则按段落边界二次切分为虚拟块（标题带「（续N）」）。
+    ///
+    /// 取 8,000 而非更大值：
+    /// 排版用 TextKit 2 的 ensureLayout 完成整章布局，
+    /// 字数越多耗时越线性增长。8,000 字约 1 屏 20 页，
+    /// 排版耗时在 50ms 以内；10 万字会到 3 秒以上，用户能感知到卡顿。
+    static let maxChapterCharacters = 8_000
 
     /// 数字列表规则的最小启用阈值。
     static let numericListMinChapters = 20

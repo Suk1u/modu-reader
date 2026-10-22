@@ -22,6 +22,8 @@ struct ParsedEPUB {
     var readingProgression: ReadingProgression
     /// 解压目录（章节 XHTML 与资源所在处）。
     var extractedDirectory: URL
+    /// 封面在书籍目录内的文件名。nil 表示没有封面。
+    var coverFileName: String?
 }
 
 /// EPUB 解析器。
@@ -146,6 +148,24 @@ struct EPUBParser: Sendable {
             identifier: package.identifier,
             wordCount: totalCharacters
         )
+        // 提取封面并复制到书籍目录
+        var coverPath: String?
+        if let coverSource = Self.resolveCoverSource(
+            package: package,
+            opfDirectory: opfDirectory,
+            extracted: extracted
+        ) {
+            let target = fileStore.bookDirectory(for: bookID)
+                .appendingPathComponent("cover\(coverSource.pathExtension.isEmpty ? "jpg" : "." + coverSource.pathExtension)")
+            if (try? FileManager.default.copyItem(at: coverSource, to: target)) != nil {
+                coverPath = target.lastPathComponent
+                Diagnostics.log("EPUB: 封面已提取 \(coverPath ?? "")")
+            }
+        }
+        if coverPath == nil {
+            Diagnostics.log("EPUB: 未找到封面")
+        }
+
         try fileStore.writeMeta(metadata, for: bookID)
 
         return ParsedEPUB(
@@ -154,8 +174,53 @@ struct EPUBParser: Sendable {
             totalCharacters: totalCharacters,
             isFixedLayout: package.isFixedLayout,
             readingProgression: package.readingProgression,
-            extractedDirectory: extracted
+            extractedDirectory: extracted,
+            coverFileName: coverPath
         )
+    }
+
+    // MARK: - Cover
+
+    /// 定位封面图片文件。
+    ///
+    /// 优先顺序：
+    /// 1. EPUB 3 的 properties="cover-image"
+    /// 2. EPUB 2 的 <meta name="cover" content="id"> → manifest[id].href
+    /// 3. 文件名含 cover 的第一张图片
+    static func resolveCoverSource(
+        package: OPFPackage,
+        opfDirectory: String,
+        extracted: URL
+    ) -> URL? {
+        func url(for href: String) -> URL? {
+            let relative = opfDirectory.isEmpty ? href : "\(opfDirectory)/\(href)"
+            let candidate = extracted.appendingPathComponent(relative).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+            return candidate
+        }
+
+        if let href = package.coverHref, let found = url(for: href) {
+            return found
+        }
+
+        if let id = package.coverID,
+           let item = package.manifest[id],
+           let found = url(for: item.href) {
+            return found
+        }
+
+        // 兜底：按文件名猜
+        let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif"]
+        for item in package.manifest.values {
+            let ext = (item.href as NSString).pathExtension.lowercased()
+            guard imageExtensions.contains(ext) else { continue }
+            guard item.href.lowercased().contains("cover") else { continue }
+            if let found = url(for: item.href) {
+                return found
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Extraction
@@ -233,6 +298,10 @@ struct EPUBParser: Sendable {
         var tocTitles: [String: String]
         var isFixedLayout: Bool
         var readingProgression: ReadingProgression
+        /// EPUB 2 的 <meta name="cover" content="id"> 指向的图片 id。
+        var coverID: String?
+        /// EPUB 3 的 properties="cover-image" 图片 href。
+        var coverHref: String?
 
         struct ManifestItem {
             var id: String
@@ -282,12 +351,18 @@ struct EPUBParser: Sendable {
             case "item":
                 guard let id = attributeDict["id"],
                       let href = attributeDict["href"] else { return }
+                let properties = attributeDict["properties"] ?? ""
+                let normalizedHref = href.removingPercentEncoding ?? href
                 package.manifest[id] = OPFPackage.ManifestItem(
                     id: id,
-                    href: href.removingPercentEncoding ?? href,
+                    href: normalizedHref,
                     mediaType: attributeDict["media-type"] ?? "",
-                    properties: attributeDict["properties"] ?? ""
+                    properties: properties
                 )
+                // EPUB 3 封面：properties="cover-image"
+                if properties.split(separator: " ").contains("cover-image") {
+                    package.coverHref = normalizedHref
+                }
 
             case "itemref":
                 guard let idref = attributeDict["idref"] else { return }
@@ -302,6 +377,11 @@ struct EPUBParser: Sendable {
                 if attributeDict["name"] == "fixed-layout",
                    attributeDict["content"] == "true" {
                     package.isFixedLayout = true
+                }
+                // EPUB 2 封面：<meta name="cover" content="cover-image-id"/>
+                if attributeDict["name"] == "cover",
+                   let content = attributeDict["content"] {
+                    package.coverID = content
                 }
                 if attributeDict["property"] == "rendition:layout" {
                     pendingLayoutValue = true

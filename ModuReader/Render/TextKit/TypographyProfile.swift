@@ -134,15 +134,23 @@ struct TypographyProfile: Hashable, Sendable {
         let style = NSMutableParagraphStyle()
         style.lineHeightMultiple = lineHeightMultiple
         style.paragraphSpacing = paragraphSpacing
-        style.alignment = .justified
+
+        // 用 .natural 而非 .justified：
+        // .justified 会拉伸字间空白来对齐右边界，中文正文里会出现
+        // 字距忽宽忽窄的「空洞」，阅读体验差。中文排版惯例是左对齐。
+        style.alignment = .natural
         style.lineBreakMode = .byWordWrapping
-        // 中文避头尾：允许标点悬挂
+
+        // 中文避头尾：标点不出现在行首，允许悬挂到边界外
         style.lineBreakStrategy = .pushOut
+
+        // 首行缩进 2 字符，续行顶格 —— 中文排版标准做法
         if firstLineIndent > 0 {
-            let indent = fontSize * CGFloat(firstLineIndent)
-            style.firstLineHeadIndent = indent
-            style.headIndent = 0
+            style.firstLineHeadIndent = fontSize * CGFloat(firstLineIndent)
         }
+        style.headIndent = 0
+        style.tailIndent = 0
+
         return style
     }
 

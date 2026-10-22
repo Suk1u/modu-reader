@@ -8,6 +8,8 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import ImageIO
+import UIKit
 
 struct LibraryView: View {
 
@@ -384,8 +386,36 @@ enum LibrarySortOrder: String, CaseIterable, Identifiable {
 struct BookCard: View {
     let book: BookEntity
 
+    @Environment(AppContainer.self) private var appContainer
+
     private var progress: Double {
         book.progress?.totalProgression ?? 0
+    }
+
+    /// 加载封面图片。
+    ///
+    /// 封面在导入时已复制到 `Books/<bookID>/cover.*`。
+    /// 用 ImageIO 降采样到卡片尺寸，避免大图常驻内存。
+    private func loadCoverIfNeeded() {
+        guard coverImage == nil, let coverPath = book.coverPath else { return }
+
+        let url = appContainer.fileStore.bookDirectory(for: book.id)
+            .appendingPathComponent(coverPath)
+
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return }
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 480,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            options as CFDictionary
+        ) else { return }
+
+        coverImage = UIImage(cgImage: cgImage)
     }
 
     var body: some View {
@@ -416,12 +446,27 @@ struct BookCard: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
+        .task(id: book.coverPath) {
+            loadCoverIfNeeded()
+        }
     }
+
+    /// 真实封面图片。从书籍目录加载。
+    @State private var coverImage: UIImage?
 
     private var cover: some View {
         ZStack {
             ConcentricRectangle(corners: .concentric(minimum: .fixed(10)), isUniform: true)
                 .fill(coverGradient)
+
+            if let coverImage {
+                Image(uiImage: coverImage)
+                    .resizable()
+                    .scaledToFill()
+                    .clipShape(
+                        ConcentricRectangle(corners: .concentric(minimum: .fixed(10)), isUniform: true)
+                    )
+            }
 
             VStack(spacing: 6) {
                 Image(systemName: "text.book.closed.fill")
