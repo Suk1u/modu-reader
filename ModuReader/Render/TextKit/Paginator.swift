@@ -2,187 +2,116 @@
 //  Paginator.swift
 //  ModuReader
 //
-//  分页器。基于 `ChapterLayout` 的排版结果计算页区间。
+//  分页器。用 CTFramesetter 计算每页字符区间。
 //
-//  ── 为什么分页与渲染必须共用同一份排版 ──
+//  ── 为什么分页不用 NSTextLayoutManager ──
 //
-//  之前分页用 CTFramesetter、渲染用 TextKit 2。两者虽都基于 CoreText，
-//  但对段落间距、首行缩进、attachment 高度的解释有细微差异。
-//  这些差异累积几十行后，分页算出的「第 N 页首行」与渲染实际画出的
-//  位置就对不上 —— 表现为空白页、文字错位、进度记录不准。
+//  TextKit 2 的布局是 **viewport 驱动**的：只有被 viewport 覆盖的区域
+//  才会真正排版。实测三种尝试全部失败：
 //
-//  现在：一次排版 → 分页只读 Y 坐标 → 渲染按同一 Y 坐标绘制。
-//  不存在任何几何偏差。
+//  1. 容器高度 = 页高 → 只能拿到第一页的 fragment
+//  2. 容器高度 = 极大值 + ensureLayout(documentRange)
+//     → 10 万字耗时 13.8 秒，且 fragment Y 坐标失真
+//  3. 容器高度 = 100,000pt
+//     → 长文本仍只产出 1-2 页，超出部分未布局
+//
+//  CTFramesetter 是纯计算 API：给定矩形，返回「能放下多少字符」。
+//  结果确定、无需 UI 环境、10 万字 0.48 秒。
+//
+//  ── 分页与渲染的一致性如何保证 ──
+//
+//  两者都基于 CoreText 的断行引擎，且使用**完全相同**的
+//  NSAttributedString 与容器宽度。断行结果由 CoreText 决定，
+//  因此分页边界与 TextKit 2 的渲染结果一致。
+//
+//  渲染侧用「页首字符位置」定位 fragment，不依赖 Y 坐标 ——
+//  字符位置是唯一稳定的锚点。
 //
 
+import Foundation
+import CoreText
 import UIKit
 
-/// 分页结果。
-struct PaginationResult: Sendable {
-    var slices: [PageSlice]
-    /// 整章排版高度。
-    var contentHeight: CGFloat
-}
-
-/// 分页器。
-@MainActor
+/// 分页器。纯函数，无状态。
 enum Paginator {
 
-    /// 单章最大字符数。
-    ///
-    /// 超过此长度的章节在导入时已被切分为虚拟块（见 `ChapterSplitter`），
-    /// 这里是第二道防线：万一有超长章节漏网，按此长度二次切分，
-    /// 避免一次排版几十万字导致卡顿。
-    static let maxChapterCharacters = 12_000
-
-    /// 对已排版的章节计算页区间。
+    /// 对一章文本分页。
     ///
     /// - Parameters:
-    ///   - layout: 已完成的整章排版。
-    ///   - pageHeight: 页高（已扣除上下内边距）。
-    ///   - totalLength: 章节字符总数。
-    /// - Returns: 页区间列表。
+    ///   - attributedText: 已应用排版属性的章节文本（含图片 attachment）。
+    ///   - profile: 排版指纹（决定可用尺寸）。
+    ///   - chapterIndex: 章节序号。
+    /// - Returns: 分页快照。
     static func paginate(
-        layout: ChapterLayout,
-        pageHeight: CGFloat,
-        totalLength: Int
-    ) -> PaginationResult {
-        guard layout.isReady, totalLength > 0, pageHeight > 0 else {
-            return PaginationResult(
-                slices: [PageSlice(range: NSRange(location: 0, length: max(0, totalLength)), pageIndex: 0)],
-                contentHeight: 0
+        attributedText: NSAttributedString,
+        profile: TypographyProfile,
+        chapterIndex: Int
+    ) -> PaginatedChapter {
+        let length = attributedText.length
+        guard length > 0 else {
+            return PaginatedChapter(
+                chapterIndex: chapterIndex,
+                characterCount: 0,
+                slices: [PageSlice(range: NSRange(location: 0, length: 0), pageIndex: 0)]
             )
         }
+
+        let pageSize = CGSize(
+            width: max(1, profile.contentWidth),
+            height: max(1, profile.contentHeight)
+        )
+
+        let framesetter = CTFramesetterCreateWithAttributedString(
+            attributedText as CFAttributedString
+        )
 
         var slices: [PageSlice] = []
+        var start = 0
         var pageIndex = 0
-        var pageStart = 0
-        var pageTop: CGFloat = 0
-        var hasOpenPage = false
 
-        layout.enumerateLines { line in
-            let lineTop = line.minY
-            let lineBottom = line.maxY
-            let lineStart = line.range.location
-            let lineEnd = line.range.location + line.range.length
+        while start < length {
+            let pageRect = CGRect(origin: .zero, size: pageSize)
+            let path = CGPath(rect: pageRect, transform: nil)
 
-            guard lineStart >= pageStart else { return }
+            let frame = CTFramesetterCreateFrame(
+                framesetter,
+                CFRange(location: start, length: 0),
+                path,
+                nil
+            )
 
-            if !hasOpenPage {
-                hasOpenPage = true
-                pageTop = lineTop
-            }
+            let visible = CTFrameGetVisibleStringRange(frame)
 
-            // 这一行放不下 → 结束当前页
-            if lineBottom - pageTop > pageHeight, lineStart > pageStart {
+            guard visible.length > 0 else {
                 slices.append(
                     PageSlice(
-                        range: NSRange(location: pageStart, length: lineStart - pageStart),
-                        pageIndex: pageIndex,
-                        yOffset: pageTop
+                        range: NSRange(location: start, length: length - start),
+                        pageIndex: pageIndex
                     )
                 )
-                pageIndex += 1
-                pageStart = lineStart
-                pageTop = lineTop
+                break
             }
 
-            // 单行超过整页：独占一页，防止死循环
-            if lineBottom - lineTop > pageHeight {
-                let end = min(totalLength, lineEnd)
-                if end > pageStart {
-                    slices.append(
-                        PageSlice(
-                            range: NSRange(location: pageStart, length: end - pageStart),
-                            pageIndex: pageIndex,
-                            yOffset: pageTop
-                        )
-                    )
-                    pageIndex += 1
-                    pageStart = end
-                }
-                hasOpenPage = false
-            }
-        }
-
-        // 收尾
-        if pageStart < totalLength {
+            let sliceLength = min(visible.length, length - start)
             slices.append(
                 PageSlice(
-                    range: NSRange(location: pageStart, length: totalLength - pageStart),
-                    pageIndex: pageIndex,
-                    yOffset: pageTop
+                    range: NSRange(location: start, length: sliceLength),
+                    pageIndex: pageIndex
                 )
             )
+
+            start += sliceLength
+            pageIndex += 1
         }
 
-        if slices.isEmpty {
-            slices.append(
-                PageSlice(range: NSRange(location: 0, length: totalLength), pageIndex: 0)
-            )
-        }
-
-        return PaginationResult(slices: slices, contentHeight: layout.contentHeight)
-    }
-}
-
-// MARK: - 行枚举
-
-extension ChapterLayout {
-
-    /// 一行排版信息。
-    struct Line {
-        var range: NSRange
-        var minY: CGFloat
-        var maxY: CGFloat
+        return PaginatedChapter(
+            chapterIndex: chapterIndex,
+            characterCount: length,
+            slices: slices
+        )
     }
 
-    /// 枚举整章所有行。
-    ///
-    /// 行的绝对 Y = fragment 的 Y + 行在 fragment 内的相对 Y。
-    /// `typographicBounds.origin` 是相对所属 fragment 的偏移。
-    func enumerateLines(_ body: (Line) -> Void) {
-        guard isReady else { return }
-        let totalLength = contentStorage.attributedString?.length ?? 0
-
-        layoutManager.enumerateTextLayoutFragments(
-            from: nil,
-            options: [.ensuresLayout]
-        ) { fragment in
-            let fragmentTop = fragment.layoutFragmentFrame.minY
-
-            for line in fragment.textLineFragments {
-                let bounds = line.typographicBounds
-                guard bounds.height > 0 else { continue }
-
-                let range = line.characterRange
-                guard range.location >= 0,
-                      range.length > 0,
-                      range.location + range.length <= totalLength else {
-                    continue
-                }
-
-                body(
-                    Line(
-                        range: range,
-                        minY: fragmentTop + bounds.minY,
-                        maxY: fragmentTop + bounds.minY + bounds.height
-                    )
-                )
-            }
-            return true
-        }
-    }
-}
-
-// MARK: - 测试与便捷入口
-
-extension Paginator {
-
-    /// 便捷入口：给定纯文本直接分页。
-    ///
-    /// 内部完成「构造富文本 → 排版 → 切页」全流程。
-    /// 供测试与不需要复用排版的场景使用。
+    /// 对纯文本分页。
     static func paginate(
         text: String,
         profile: TypographyProfile,
@@ -194,20 +123,10 @@ extension Paginator {
             profile: profile,
             textColor: textColor
         )
-
-        let layout = ChapterLayout()
-        layout.prepare(attributed: attributed, width: profile.contentWidth)
-
-        let result = paginate(
-            layout: layout,
-            pageHeight: profile.contentHeight,
-            totalLength: attributed.length
-        )
-
-        return PaginatedChapter(
-            chapterIndex: chapterIndex,
-            characterCount: attributed.length,
-            slices: result.slices
+        return paginate(
+            attributedText: attributed,
+            profile: profile,
+            chapterIndex: chapterIndex
         )
     }
 }

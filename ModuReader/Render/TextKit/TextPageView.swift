@@ -2,10 +2,12 @@
 //  TextPageView.swift
 //  ModuReader
 //
-//  单页文字视图。
+//  单页文字视图。用 TextKit 2 渲染。
 //
-//  渲染方式：从共享的 `ChapterLayout` 里按 Y 区间绘制。
-//  分页与渲染读的是同一份排版结果，几何完全一致。
+//  定位方式：按「页首字符位置」找到对应 fragment，
+//  以它的 Y 作为绘制原点。不依赖分页阶段算出的 Y 坐标 ——
+//  分页用 CTFramesetter、渲染用 TextKit 2，两者的 Y 坐标体系不同，
+//  但字符位置是共享且稳定的锚点。
 //
 
 import UIKit
@@ -14,14 +16,11 @@ import UIKit
 @MainActor
 final class TextPageView: UIView {
 
-    /// 共享的整章排版。由引擎注入，多页共用同一实例。
+    /// 共享的整章排版。
     private weak var layout: ChapterLayout?
 
     /// 本页对应的字符区间。
     private(set) var pageRange: NSRange = NSRange(location: 0, length: 0)
-
-    /// 本页首行的绝对 Y。
-    private var pageY: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -58,11 +57,10 @@ final class TextPageView: UIView {
     ///
     /// - Parameters:
     ///   - layout: 整章排版（共享）。
-    ///   - slice: 本页区间与 Y 偏移。
+    ///   - slice: 本页区间。
     func configure(layout: ChapterLayout, slice: PageSlice) {
         self.layout = layout
         self.pageRange = slice.range
-        self.pageY = slice.yOffset
         setNeedsDisplay()
     }
 
@@ -75,9 +73,13 @@ final class TextPageView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        guard let layout, layout.isReady else { return }
+        guard let layout, layout.isReady, pageRange.length > 0 else { return }
 
-        layout.draw(in: context, pageY: pageY, pageHeight: bounds.height)
+        layout.drawPage(
+            in: context,
+            range: pageRange,
+            pageHeight: bounds.height
+        )
     }
 
     // MARK: - Reuse
@@ -85,7 +87,6 @@ final class TextPageView: UIView {
     /// 回收前清理。
     func prepareForReuse() {
         pageRange = NSRange(location: 0, length: 0)
-        pageY = 0
         layout = nil
         setNeedsDisplay()
     }

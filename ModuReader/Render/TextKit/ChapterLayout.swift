@@ -58,6 +58,9 @@ final class ChapterLayout {
 
     /// 准备排版。
     ///
+    /// 只灌入文本并设置容器宽度，**不做全量布局**。
+    /// 真正的布局由 `drawPage` 按页触发（TextKit 2 的按需布局）。
+    ///
     /// - Parameters:
     ///   - attributed: 整章富文本。
     ///   - width: 正文可用宽度（已扣除左右内边距）。
@@ -72,47 +75,72 @@ final class ChapterLayout {
         contentStorage.attributedString = attributed
         layoutManager.invalidateLayout(for: contentStorage.documentRange)
 
-        // 必须完成整章布局，否则 fragment 几何是估算值。
-        // 章节大小已限制在 8,000 字以内，这里是毫秒级。
-        layoutManager.ensureLayout(for: contentStorage.documentRange)
-
-        // 计算整体高度：取最后一个 fragment 的底边
-        var maxY: CGFloat = 0
-        layoutManager.enumerateTextLayoutFragments(
-            from: nil,
-            options: [.ensuresLayout]
-        ) { fragment in
-            maxY = max(maxY, fragment.layoutFragmentFrame.maxY)
-            return true
+        // 只布局第一屏，拿到起始几何即可。
+        // 后续页由 drawPage 按需布局。
+        let probeRange = NSTextRange(
+            location: contentStorage.documentRange.location,
+            end: contentStorage.location(
+                contentStorage.documentRange.location,
+                offsetBy: min(500, attributed.length)
+            )
+        )
+        if let probeRange {
+            layoutManager.ensureLayout(for: probeRange)
         }
-        contentHeight = maxY
+
         isReady = true
+        contentHeight = 0
         return true
     }
 
-    /// 把整章排版结果绘制到指定上下文，只画 `[pageY, pageY + pageHeight)` 区间。
+    /// 绘制指定字符区间对应的那一页。
+    ///
+    /// 做法：按区间首字符定位到 fragment，以它的 Y 作为绘制原点，
+    /// 只画落在 `pageHeight` 高度内的 fragment。
     ///
     /// - Parameters:
-    ///   - context: 绘制上下文。调用方需已设置好裁剪区域。
-    ///   - pageY: 本页首行的绝对 Y 坐标。
+    ///   - context: 绘制上下文。
+    ///   - range: 本页的字符区间。
     ///   - pageHeight: 页高。
-    func draw(in context: CGContext, pageY: CGFloat, pageHeight: CGFloat) {
+    func drawPage(in context: CGContext, range: NSRange, pageHeight: CGFloat) {
         guard isReady else { return }
+        guard range.length > 0 else { return }
+
+        guard let startLocation = contentStorage.location(
+            contentStorage.documentRange.location,
+            offsetBy: range.location
+        ) else { return }
+
+        // 只布局本页范围，避免整章排版（TextKit 2 按需布局）
+        let endOffset = min(
+            contentStorage.attributedString?.length ?? 0,
+            range.location + range.length
+        )
+        if let endLocation = contentStorage.location(
+            contentStorage.documentRange.location,
+            offsetBy: endOffset
+        ), let pageRange = NSTextRange(location: startLocation, end: endLocation) {
+            layoutManager.ensureLayout(for: pageRange)
+        }
+
+        // 以本页首字符所在 fragment 的 Y 为原点
+        guard let firstFragment = layoutManager.textLayoutFragment(for: startLocation) else {
+            return
+        }
+        let originY = firstFragment.layoutFragmentFrame.minY
 
         context.saveGState()
-        context.translateBy(x: 0, y: -pageY)
+        context.translateBy(x: 0, y: -originY)
 
-        let visibleBottom = pageY + pageHeight
+        let visibleBottom = originY + pageHeight
 
         layoutManager.enumerateTextLayoutFragments(
-            from: nil,
+            from: startLocation,
             options: [.ensuresLayout]
         ) { fragment in
             let frame = fragment.layoutFragmentFrame
 
-            // 完全在可视区上方 → 继续
-            if frame.maxY <= pageY { return true }
-            // 完全在可视区下方 → 停止
+            if frame.maxY <= originY { return true }
             if frame.minY >= visibleBottom { return false }
 
             fragment.draw(at: frame.origin, in: context)
@@ -130,7 +158,6 @@ final class ChapterLayout {
         mutable.addAttribute(.foregroundColor, value: color, range: full)
         contentStorage.attributedString = mutable
         layoutManager.invalidateLayout(for: contentStorage.documentRange)
-        layoutManager.ensureLayout(for: contentStorage.documentRange)
         isReady = true
     }
 
