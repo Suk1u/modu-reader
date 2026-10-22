@@ -185,10 +185,11 @@ final class TextKitEngine: UIViewController, RenderEngine {
             lastProfile = newProfile
             repaginateKeepingPosition()
         } else {
-            // 仅颜色变化：更新已渲染页的文字色，不重新分页
-            let color = settings.theme.uiTextColor
+            // 仅颜色变化：更新共享排版的文字色，然后重绘各页。
+            // 不重新分页 —— 颜色不影响行几何。
+            currentLayout?.updateTextColor(settings.theme.uiTextColor)
             for relative in [-1, 0, 1] {
-                pagePool.view(for: relative, in: contentView).updateTextColor(color)
+                pagePool.view(for: relative, in: contentView).refresh()
             }
         }
     }
