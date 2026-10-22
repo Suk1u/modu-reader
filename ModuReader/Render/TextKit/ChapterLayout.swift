@@ -25,10 +25,13 @@ final class ChapterLayout {
 
     /// 容器高度上限。
     ///
-    /// 取有限值而非 `.greatestFiniteMagnitude`：
-    /// 后者在某些路径上会触发浮点溢出。
-    /// 20,000 pt 约等于 7 屏，配合 8,000 字的章节上限足够。
-    private static let heightLimit: CGFloat = 20_000
+    /// 取有限值而非 `.greatestFiniteMagnitude`：后者会触发浮点溢出。
+    ///
+    /// 计算依据：12,000 字上限 × 每行约 40 字 = 300 行，
+    /// 行高 19pt × 1.8 = 34pt，总计约 10,200pt。
+    /// 取 100,000pt 留出 10 倍余量，覆盖大字号（32pt）与窄屏（每行 20 字）：
+    /// 12,000 / 20 = 600 行 × 32 × 2.4 = 46,080pt，仍在范围内。
+    private static let heightLimit: CGFloat = 100_000
 
     let contentStorage = NSTextContentStorage()
     let layoutManager = NSTextLayoutManager()
