@@ -927,7 +927,7 @@ struct EPUBParser: Sendable {
 
     /// 从 CSS 声明里取出 font-family 的第一个字体名。
     static func fontFamily(inCSS css: String) -> String? {
-        let pattern = "font-family\s*:\s*([^;}]+)"
+        let pattern = "font-family\\s*:\\s*([^;}]+)"
         guard let regex = try? NSRegularExpression(
             pattern: pattern,
             options: [.caseInsensitive]
