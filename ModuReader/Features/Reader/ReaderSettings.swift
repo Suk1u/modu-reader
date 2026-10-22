@@ -27,6 +27,8 @@ struct ReaderSettings: Codable, Equatable, Sendable {
     // MARK: 排版
 
     var fontFamily: ReaderFontFamily = .system
+    /// 是否使用书籍自带字体（EPUB 内嵌）。为 true 时覆盖 `fontFamily`。
+    var useBookFont: Bool = false
     /// 字号，范围 12...32。
     var fontSize: Double = 19
     /// 行距倍数，范围 1.2...2.4。

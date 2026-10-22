@@ -61,8 +61,16 @@ struct EPUBParser: Sendable {
         }
 
         // 3. 解析 OPF
-        let package = try Self.parsePackage(xml: Data(contentsOf: opfURL))
+        var package = try Self.parsePackage(xml: Data(contentsOf: opfURL))
         let opfDirectory = (opfPath as NSString).deletingLastPathComponent
+
+        // 3.1 解析 NCX / nav 得到真实目录标题
+        package.tocTitles = Self.loadTableOfContents(
+            package: package,
+            opfDirectory: opfDirectory,
+            extracted: extracted
+        )
+        Diagnostics.log("EPUB: 目录项 \(package.tocTitles.count) 条")
 
         // 4. 逐个 spine 项转成章节
         var chapters: [Chapter] = []
@@ -100,9 +108,12 @@ struct EPUBParser: Sendable {
                 continue
             }
 
-            // 空章节也保留，否则章节序号会与目录错位
-            let title = package.tocTitles[resourcePath]
-                ?? package.tocTitles[href]
+            // 空章节也保留，否则章节序号会与目录错位。
+            // 标题按「规范化相对路径」查找（去掉 ./、解码百分号）。
+            let normalizedResource = Self.normalizePath(resourcePath)
+            let normalizedHref = Self.normalizePath(href)
+            let title = package.tocTitles[normalizedResource]
+                ?? package.tocTitles[normalizedHref]
                 ?? "第 \(index + 1) 章"
 
             let fileName = String(format: "%04d.txt", chapters.count)
@@ -177,6 +188,185 @@ struct EPUBParser: Sendable {
             extractedDirectory: extracted,
             coverFileName: coverPath
         )
+    }
+
+    // MARK: - 目录
+
+    /// 规范化相对路径。
+    ///
+    /// 统一处理：去掉 "./" 前缀、合并重复斜杠、解码百分号编码、
+    /// 拆分 fragment（#section）。
+    static func normalizePath(_ path: String) -> String {
+        var result = path
+        // 去掉 fragment
+        if let hash = result.firstIndex(of: "#") {
+            result = String(result[..<hash])
+        }
+        // 解码百分号
+        result = result.removingPercentEncoding ?? result
+        // 去掉 "./"
+        while result.hasPrefix("./") {
+            result.removeFirst(2)
+        }
+        // 合并重复斜杠
+        while result.contains("//") {
+            result = result.replacingOccurrences(of: "//", with: "/")
+        }
+        // 去掉开头的 /
+        while result.hasPrefix("/") {
+            result.removeFirst()
+        }
+        return result
+    }
+
+    /// 解析 NCX 或 EPUB 3 nav 文档，得到「资源路径 → 章节标题」映射。
+    ///
+    /// 支持两种格式：
+    /// - EPUB 2：`toc.ncx` 的 `<navPoint><navLabel><text>标题</text></navLabel><content src="..."/></navPoint>`
+    /// - EPUB 3：`nav.xhtml` 的 `<nav epub:type="toc"><ol><li><a href="...">标题</a></li></ol></nav>`
+    static func loadTableOfContents(
+        package: OPFPackage,
+        opfDirectory: String,
+        extracted: URL
+    ) -> [String: String] {
+        // 找到 NCX 或 nav 文档
+        var tocHref: String?
+        for item in package.manifest.values {
+            let mediaType = item.mediaType.lowercased()
+            let properties = item.properties.lowercased()
+            if mediaType.contains("dtbncx") || item.href.lowercased().hasSuffix(".ncx") {
+                tocHref = item.href
+                break
+            }
+            if properties.contains("nav") {
+                tocHref = item.href
+                break
+            }
+        }
+
+        guard let tocHref else {
+            Diagnostics.log("EPUB: 未找到 NCX / nav 文档")
+            return [:]
+        }
+
+        let tocPath = opfDirectory.isEmpty ? tocHref : "\(opfDirectory)/\(tocHref)"
+        let tocURL = extracted.appendingPathComponent(tocPath)
+        guard let data = try? Data(contentsOf: tocURL) else {
+            Diagnostics.log("EPUB: 目录文件读取失败 \(tocPath)")
+            return [:]
+        }
+
+        // 目录文件所在目录，用于把 src 解析为相对解压根的路径
+        let tocDirectory = (tocPath as NSString).deletingLastPathComponent
+
+        let parser = XMLParser(data: data)
+        let delegate = TOCDelegate()
+        parser.delegate = delegate
+        guard parser.parse() else {
+            Diagnostics.log("EPUB: 目录文件解析失败 \(tocPath)")
+            return [:]
+        }
+
+        // 把 src 转换为相对解压根的规范化路径
+        var result: [String: String] = [:]
+        for entry in delegate.entries {
+            let raw = normalizePath(entry.href)
+            let combined = tocDirectory.isEmpty ? raw : "\(tocDirectory)/\(raw)"
+            result[normalizePath(combined)] = entry.title
+            // 同时存一份相对于 OPF 目录的路径，兼容 spine 里 href 的写法
+            result[raw] = entry.title
+        }
+        return result
+    }
+
+    /// NCX / nav 解析委托。
+    private final class TOCDelegate: NSObject, XMLParserDelegate {
+        struct Entry {
+            var href: String
+            var title: String
+        }
+
+        var entries: [Entry] = []
+
+        private var pendingHref: String?
+        private var collectingLabel = false
+        private var currentLabel = ""
+        private var labelDepth = 0
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?,
+            attributes attributeDict: [String: String] = [:]
+        ) {
+            let name = elementName.lowercased()
+
+            switch name {
+            case "content":
+                // NCX
+                if let src = attributeDict["src"] {
+                    pendingHref = src
+                }
+            case "a":
+                // EPUB 3 nav
+                if let href = attributeDict["href"] {
+                    pendingHref = href
+                }
+            case "text", "span":
+                if pendingHref != nil {
+                    collectingLabel = true
+                    labelDepth += 1
+                    currentLabel = ""
+                }
+            default:
+                break
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            if collectingLabel {
+                currentLabel += string
+            }
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didEndElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName: String?
+        ) {
+            let name = elementName.lowercased()
+
+            switch name {
+            case "text", "span":
+                if collectingLabel {
+                    labelDepth -= 1
+                    if labelDepth <= 0 {
+                        collectingLabel = false
+                        let title = currentLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let href = pendingHref, !title.isEmpty {
+                            entries.append(Entry(href: href, title: title))
+                        }
+                        pendingHref = nil
+                        currentLabel = ""
+                    }
+                }
+            case "navpoint", "li", "a":
+                // 一个目录项结束
+                if !collectingLabel, let href = pendingHref {
+                    // nav 的 <a> 内文字可能没被 span 包裹
+                    let title = currentLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !title.isEmpty {
+                        entries.append(Entry(href: href, title: title))
+                    }
+                    pendingHref = nil
+                    currentLabel = ""
+                }
+            default:
+                break
+            }
+        }
     }
 
     // MARK: - Cover

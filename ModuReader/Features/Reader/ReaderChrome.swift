@@ -166,9 +166,8 @@ struct ReaderBottomBar: View {
     }
 
     private var chapterLabel: String {
-        let index = session.currentChapterIndex + 1
-        let total = max(1, session.chapterCount)
-        return "\(index) / \(total) · \(session.currentChapterTitle)"
+        // 显示「第 X/Y 页 · 章节名」，与阅读器页码语义一致
+        "第 \(session.currentPageNumber)/\(session.totalPageCount) 页 · \(session.currentChapterTitle)"
     }
 
     private func percentLabel(for value: Double) -> String {

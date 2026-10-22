@@ -460,24 +460,21 @@ struct BookCard: View {
                 .fill(coverGradient)
 
             if let coverImage {
+                // 有封面：只显示图片，不叠加文字
                 Image(uiImage: coverImage)
                     .resizable()
                     .scaledToFill()
                     .clipShape(
                         ConcentricRectangle(corners: .concentric(minimum: .fixed(10)), isUniform: true)
                     )
-            }
-
-            VStack(spacing: 6) {
-                Image(systemName: "text.book.closed.fill")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.85))
-                Text(book.title)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
+            } else {
+                // 无封面：用占位图
+                Image("CoverPlaceholder")
+                    .resizable()
+                    .scaledToFill()
+                    .clipShape(
+                        ConcentricRectangle(corners: .concentric(minimum: .fixed(10)), isUniform: true)
+                    )
             }
         }
         .aspectRatio(3.0 / 4.0, contentMode: .fit)

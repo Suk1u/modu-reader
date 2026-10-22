@@ -161,6 +161,11 @@ struct ReaderSettingsPanel: View {
 
     private var fontFamilySection: some View {
         Section("字体") {
+            if session.hasBookFont {
+                Toggle("使用书籍自带字体", isOn: $session.settings.useBookFont)
+                    .accessibilityHint("使用 EPUB 内嵌的字体，覆盖下方选择")
+            }
+
             Picker("字体", selection: $session.settings.fontFamily) {
                 ForEach(ReaderFontFamily.allCases, id: \.self) { family in
                     Text(family.displayName).tag(family)
@@ -168,6 +173,7 @@ struct ReaderSettingsPanel: View {
             }
             .pickerStyle(.inline)
             .labelsHidden()
+            .disabled(session.settings.useBookFont && session.hasBookFont)
         }
     }
 }

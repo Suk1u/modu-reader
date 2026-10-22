@@ -59,6 +59,8 @@ enum ReaderFontFamily: String, Codable, CaseIterable, Hashable, Sendable {
 /// 任何影响分页结果的参数都必须进入此结构。否则换字号后缓存会命中错误的分页。
 struct TypographyProfile: Hashable, Sendable {
     var fontFamily: ReaderFontFamily
+    /// 书籍自带字体的 PostScript 名。非 nil 时优先于 `fontFamily`。
+    var bookFontName: String?
     var fontSize: CGFloat
     var lineHeightMultiple: CGFloat
     var paragraphSpacing: CGFloat
@@ -72,6 +74,7 @@ struct TypographyProfile: Hashable, Sendable {
 
     init(
         fontFamily: ReaderFontFamily = .system,
+        bookFontName: String? = nil,
         fontSize: CGFloat = 19,
         lineHeightMultiple: CGFloat = 1.8,
         paragraphSpacing: CGFloat = 8,
@@ -82,6 +85,7 @@ struct TypographyProfile: Hashable, Sendable {
         language: String = "zh"
     ) {
         self.fontFamily = fontFamily
+        self.bookFontName = bookFontName
         self.fontSize = fontSize
         self.lineHeightMultiple = lineHeightMultiple
         self.paragraphSpacing = paragraphSpacing
@@ -109,7 +113,7 @@ struct TypographyProfile: Hashable, Sendable {
     /// 稳定的缓存键。
     var cacheKey: String {
         let parts: [String] = [
-            fontFamily.rawValue,
+            bookFontName ?? fontFamily.rawValue,
             String(format: "%.1f", fontSize),
             String(format: "%.2f", lineHeightMultiple),
             String(format: "%.1f", paragraphSpacing),
@@ -159,7 +163,7 @@ struct TypographyProfile: Hashable, Sendable {
     /// - Parameter textColor: 文字颜色。用 `UIColor` 而非 SwiftUI `Color`，
     ///   因为属性字典最终要交给 TextKit。
     func attributes(textColor: UIColor) -> [NSAttributedString.Key: Any] {
-        let font = fontFamily.font(size: fontSize)
+        let font = resolvedFont()
         var attributes: [NSAttributedString.Key: Any] = [:]
         attributes[.font] = font
         attributes[.foregroundColor] = textColor
@@ -173,6 +177,16 @@ struct TypographyProfile: Hashable, Sendable {
     /// 构建正文属性字典（RGB 分量版，可跨队列传递）。
     func attributes(textColor: RGBColor) -> [NSAttributedString.Key: Any] {
         attributes(textColor: textColor.uiColor)
+    }
+
+    /// 解析最终使用的字体。
+    ///
+    /// 优先用书籍自带字体；找不到时回退到 `fontFamily`。
+    func resolvedFont() -> UIFont {
+        if let bookFontName, let custom = UIFont(name: bookFontName, size: fontSize) {
+            return custom
+        }
+        return fontFamily.font(size: fontSize)
     }
 
     private static func round(_ value: CGFloat) -> CGFloat {

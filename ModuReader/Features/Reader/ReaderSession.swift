@@ -47,6 +47,15 @@ final class ReaderSession {
     /// 章节总数。
     var chapterCount: Int { engine.chapters.count }
 
+    /// 当前页码（全书维度，1 起）。
+    var currentPageNumber: Int { engine.currentPageNumber }
+
+    /// 全书总页数。
+    var totalPageCount: Int { engine.totalPageCountValue }
+
+    /// 本书是否内嵌了可用字体。
+    var hasBookFont: Bool { engine.hasBookFont }
+
     /// 当前主题。
     var theme: ReaderTheme { settings.theme }
 

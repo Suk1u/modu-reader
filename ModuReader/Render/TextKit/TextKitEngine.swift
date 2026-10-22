@@ -48,8 +48,24 @@ final class TextKitEngine: UIViewController, RenderEngine {
         )
     }
 
+    /// 全书进度（按页数计算，不是按字符数）。
     var totalProgression: Double {
-        currentLocator.locations.totalProgression ?? 0
+        guard totalPageCount > 0 else { return 0 }
+        let pagesBefore = chapterPageCounts.prefix(currentChapterIndex).reduce(0, +)
+        let currentPageNumber = pagesBefore + currentPageIndex + 1
+        return min(1, max(0, Double(currentPageNumber) / Double(totalPageCount)))
+    }
+
+    /// 全书总页数（对外只读）。
+    var totalPageCountValue: Int { totalPageCount }
+
+    /// 本书是否内嵌了可用字体。
+    var hasBookFont: Bool { bookFontName != nil }
+
+    /// 当前页码（全书维度，1 起）。
+    var currentPageNumber: Int {
+        let pagesBefore = chapterPageCounts.prefix(currentChapterIndex).reduce(0, +)
+        return pagesBefore + currentPageIndex + 1
     }
 
     // MARK: - State
@@ -68,6 +84,19 @@ final class TextKitEngine: UIViewController, RenderEngine {
     private var currentPagination: PaginatedChapter?
     /// 当前章的整章排版。分页与渲染共用。
     private var currentLayout: ChapterLayout?
+
+    /// 每章的页数（索引 = 章节序号）。
+    ///
+    /// 用于计算「全书总页数」与「当前第几页」。
+    /// 在 `load` 时一次性算好，翻页时只做加法。
+    private var chapterPageCounts: [Int] = []
+    /// 全书总页数。
+    private var totalPageCount: Int = 0
+
+    /// 本书注册的字体。
+    private let fontRegistry = BookFontRegistry()
+    /// 书籍自带的正文主字体名（nil 表示用系统字体）。
+    private var bookFontName: String?
     /// 当前页在章内的序号。
     private var currentPageIndex: Int = 0
     /// 最近一次分页使用的指纹，用于判断是否需要重排。
@@ -160,6 +189,13 @@ final class TextKitEngine: UIViewController, RenderEngine {
             targetChapter = 0
         }
 
+        // 注册书籍自带字体
+        fontRegistry.registerFonts(in: fileStore.bookDirectory(for: book.id))
+        bookFontName = fontRegistry.primaryFontName
+
+        // 预算全书页数（供进度条与页码显示）
+        estimatePageCounts()
+
         try await loadChapter(at: targetChapter)
 
         if let initialLocator {
@@ -170,6 +206,32 @@ final class TextKitEngine: UIViewController, RenderEngine {
         }
 
         view.backgroundColor = settings.theme.uiBackgroundColor
+    }
+
+    /// 预算每章页数与全书总页数。
+    ///
+    /// 用 CTFramesetter 快速估算：只算字符数除以「每页容量」，
+    /// 不做真实排版 —— 真实排版在 `loadChapter` 里按章进行。
+    ///
+    /// 为什么不用真实分页：
+    /// 一本书可能有几百章，逐章真实排版要几十秒。
+    /// 进度条只需要近似值，误差在 1-2 页内用户无感。
+    private func estimatePageCounts() {
+        guard let profile = currentProfile() else { return }
+
+        // 每页大致能放多少字：正文面积 / 单字面积
+        let lineHeight = profile.fontSize * profile.lineHeightMultiple
+        let charWidth = profile.fontSize
+        let linesPerPage = max(1, Int(profile.contentHeight / max(1, lineHeight)))
+        let charsPerLine = max(1, Int(profile.contentWidth / max(1, charWidth)))
+        let charsPerPage = max(1, linesPerPage * charsPerLine)
+
+        chapterPageCounts = chapters.map { chapter in
+            max(1, Int(ceil(Double(chapter.characterCount) / Double(charsPerPage))))
+        }
+        totalPageCount = chapterPageCounts.reduce(0, +)
+
+        Diagnostics.log("分页估算: \(charsPerPage) 字/页, 共 \(totalPageCount) 页, \(chapters.count) 章")
     }
 
     // MARK: - RenderEngine: Settings
@@ -461,12 +523,32 @@ final class TextKitEngine: UIViewController, RenderEngine {
                 continue
             }
 
-            let replacement = NSMutableAttributedString(attachment: attachment)
+            // 图片独占一段并居中：
+            // 段落样式用 .center，首行缩进清零，避免图片被缩进推偏。
+            let centered = NSMutableParagraphStyle()
+            centered.alignment = .center
+            centered.firstLineHeadIndent = 0
+            centered.headIndent = 0
+            centered.paragraphSpacing = profile.paragraphSpacing
+            centered.lineHeightMultiple = 1.0
+
+            var imageAttributes = baseAttributes
+            imageAttributes[.paragraphStyle] = centered
+
+            let replacement = NSMutableAttributedString(
+                string: "\u{FFFC}",
+                attributes: imageAttributes
+            )
+            replacement.addAttribute(
+                .attachment,
+                value: attachment,
+                range: NSRange(location: 0, length: 1)
+            )
             if markerLength > 1 {
                 replacement.append(
                     NSAttributedString(
                         string: String(repeating: "\u{200B}", count: markerLength - 1),
-                        attributes: baseAttributes
+                        attributes: imageAttributes
                     )
                 )
             }
@@ -478,36 +560,46 @@ final class TextKitEngine: UIViewController, RenderEngine {
 
     /// 构造图片 attachment。
     ///
-    /// 按正文宽度等比缩放，并限制最大高度为页高的一半，
-    /// 避免单张竖图撑满整页导致正文无处可放。
-    nonisolated private static func makeAttachment(path: String, maxWidth: CGFloat) -> NSTextAttachment? {
-        guard let image = UIImage(contentsOfFile: path) else {
-            Diagnostics.log("TextKitEngine: 图片加载失败 \(path)")
+    /// 布局规则：
+    /// - 图片独占一行（标记前后各有一个换行），宽度撑满正文宽度
+    /// - 高度上限为正文宽度的 1.2 倍，避免超长竖图撑满整页
+    /// - 用居中的段落样式，避免图片贴在左侧、右边留白
+    nonisolated private static func makeAttachment(
+        path: String,
+        maxWidth: CGFloat
+    ) -> NSTextAttachment? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            Diagnostics.log("TextKitEngine: 图片读取失败 \(path)")
             return nil
         }
 
-        let widthRatio = maxWidth / max(1, image.size.width)
-        let maxHeight = maxWidth * 0.9
-        let heightRatio = image.size.height > 0 ? maxHeight / image.size.height : 1
-        let scale = min(1, min(widthRatio, heightRatio))
+        // 先取原始尺寸，算出等比缩放后的目标尺寸
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let pixelWidth = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue ?? 1
+        let pixelHeight = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 1
+        let aspect = pixelHeight / max(1, pixelWidth)
 
-        let targetSize = CGSize(
-            width: max(1, image.size.width * scale),
-            height: max(1, image.size.height * scale)
-        )
+        let maxHeight = maxWidth * 1.2
+        var targetWidth = maxWidth
+        var targetHeight = targetWidth * aspect
+        if targetHeight > maxHeight {
+            targetHeight = maxHeight
+            targetWidth = targetHeight / max(0.01, aspect)
+        }
 
-        // 用 ImageIO 生成缩略图（线程安全，不用 UIGraphicsImageRenderer）
-        let maxPixel = max(targetSize.width, targetSize.height) * 2
+        let targetSize = CGSize(width: max(1, targetWidth), height: max(1, targetHeight))
+
+        // 用 ImageIO 生成缩略图（线程安全，不加载原图到内存）
+        let maxPixel = max(targetSize.width, targetSize.height) * 3
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
             kCGImageSourceCreateThumbnailWithTransform: true,
         ]
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(
-                source, 0, options as CFDictionary
-              ) else {
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+            source, 0, options as CFDictionary
+        ) else {
             return nil
         }
 
@@ -534,6 +626,7 @@ final class TextKitEngine: UIViewController, RenderEngine {
         guard size.width > 1, size.height > 1 else { return nil }
         return TypographyProfile(
             fontFamily: settings.fontFamily,
+            bookFontName: settings.useBookFont ? bookFontName : nil,
             fontSize: CGFloat(settings.fontSize),
             lineHeightMultiple: CGFloat(settings.lineHeightMultiple),
             paragraphSpacing: CGFloat(settings.paragraphSpacing),
