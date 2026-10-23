@@ -118,9 +118,10 @@ struct ReaderView: View {
         .sheet(isPresented: $showSettings) {
             if let session {
                 ReaderSettingsPanel(session: session, brightness: $brightness)
-                    .presentationDetents([.fraction(0.66), .large])
+                    .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(.ultraThinMaterial)
+                    .presentationCornerRadius(38)
             }
         }
         .sheet(isPresented: $showSearch) {

@@ -4,6 +4,10 @@
 //
 //  「自定义主题」面板。
 //
+//  尺寸取自 iOS 26 Apple Books 实测规范：
+//  预览区高 190pt、分组卡片圆角 20、标准行高 52、
+//  滑块单元高 84（标题 13pt + 图标 22 + 数值 14pt 等宽 48pt 宽）。
+//
 //  顶部是实时预览：任何滑块变动都会立刻反映到预览卡片，
 //  同时通过 ReaderSession 实时驱动阅读器正文。
 //
@@ -30,7 +34,7 @@ struct CustomThemePanel: View {
                     layoutSection
                     resetButton
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 18)
                 .padding(.top, 8)
                 .padding(.bottom, 28)
             }
@@ -39,16 +43,9 @@ struct CustomThemePanel: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
+                    GlassIconButton(title: "关闭", systemImage: "xmark") {
                         dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭")
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -56,10 +53,14 @@ struct CustomThemePanel: View {
                         dismiss()
                     } label: {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color(uiColor: .systemBackground))
-                            .frame(width: 32, height: 32)
-                            .background(Color.primary, in: Circle())
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.black)
+                            .frame(width: 44, height: 44)
+                            .background(Color.white, in: Circle())
+                            .overlay {
+                                Circle()
+                                    .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+                            }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("完成")
@@ -72,24 +73,39 @@ struct CustomThemePanel: View {
 
     private var preview: some View {
         let theme = session.settings.theme
+        let previewSize = min(session.settings.fontSize, 20)
 
         return VStack(alignment: .leading, spacing: 10) {
-            Text("大小")
-                .font(.system(size: 32, weight: .bold))
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text("大").font(.system(size: 28, weight: .semibold))
+                Text("小").font(.system(size: 15, weight: .semibold))
+            }
 
             Text(Self.sampleText)
-                .font(.system(size: session.settings.fontSize))
-                .lineSpacing(max(0, (session.settings.lineHeightMultiple - 1) * session.settings.fontSize))
+                .font(.system(size: previewSize))
+                .lineSpacing(max(0, (session.settings.lineHeightMultiple - 1) * previewSize))
                 .tracking(session.settings.letterSpacing)
                 .lineLimit(7)
                 .multilineTextAlignment(.leading)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.82),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
         }
         .foregroundStyle(theme.textColor)
-        .padding(16)
+        .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 190, alignment: .topLeading)
         .background(
             theme.backgroundColor,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("排版预览")
@@ -102,12 +118,13 @@ struct CustomThemePanel: View {
             fontRow
 
             if session.hasBookFont {
-                Divider()
+                Divider().padding(.leading, 16)
                 Toggle(isOn: $session.settings.useBookFont) {
                     Label("使用书籍自带字体", systemImage: "textformat.abc")
                         .labelStyle(.titleAndIcon)
+                        .font(.system(size: 16))
                 }
-                .padding(.vertical, 6)
+                .frame(minHeight: 52)
             }
         }
     }
@@ -120,16 +137,21 @@ struct CustomThemePanel: View {
                 }
             }
         } label: {
-            HStack {
-                Label("字体", systemImage: "textformat")
+            HStack(spacing: 12) {
+                Image(systemName: "textformat.size")
+                    .font(.system(size: 20))
+                    .frame(width: 28)
+                Text("字体")
+                    .font(.system(size: 16))
                 Spacer(minLength: 8)
                 Text(session.settings.fontFamily.displayName)
+                    .font(.system(size: 15))
                     .foregroundStyle(.secondary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            .frame(minHeight: 44)
+            .frame(minHeight: 52)
             .contentShape(.rect)
         }
         .disabled(session.settings.useBookFont && session.hasBookFont)
@@ -140,16 +162,16 @@ struct CustomThemePanel: View {
     // MARK: - 排版
 
     private var layoutSection: some View {
-        section("排版") {
+        section("无障碍与布局选项") {
             SliderRow(
                 title: "行间距",
                 systemImage: "arrow.up.and.down.text.horizontal",
                 value: $session.settings.lineHeightMultiple,
                 range: 1.2...2.4,
                 step: 0.1,
-                display: String(format: "%.1f", session.settings.lineHeightMultiple)
+                display: String(format: "%.2f", session.settings.lineHeightMultiple)
             )
-            Divider()
+            Divider().padding(.leading, 16)
             SliderRow(
                 title: "段间距",
                 systemImage: "text.append",
@@ -158,7 +180,7 @@ struct CustomThemePanel: View {
                 step: 2,
                 display: "\(Int(session.settings.paragraphSpacing))"
             )
-            Divider()
+            Divider().padding(.leading, 16)
             SliderRow(
                 title: "首行缩进",
                 systemImage: "increase.indent",
@@ -170,7 +192,7 @@ struct CustomThemePanel: View {
                 step: 1,
                 display: "\(session.settings.firstLineIndent) 字"
             )
-            Divider()
+            Divider().padding(.leading, 16)
             SliderRow(
                 title: "页边空白",
                 systemImage: "rectangle.inset.filled",
@@ -189,17 +211,18 @@ struct CustomThemePanel: View {
             resetTypography()
         } label: {
             Text("还原主题")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .contentShape(.rect)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color(red: 1.0, green: 0.271, blue: 0.227))
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            in: Capsule()
         )
         .accessibilityLabel("还原主题默认排版")
+        .padding(.top, 4)
     }
 
     private func resetTypography() {
@@ -221,18 +244,16 @@ struct CustomThemePanel: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.leading, 4)
+                .font(.system(size: 15, weight: .bold))
+                .padding(.leading, 10)
 
             VStack(spacing: 0) {
                 content()
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 16)
             .background(
                 Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
             )
         }
     }
@@ -250,19 +271,27 @@ private struct SliderRow: View {
     let display: String
 
     var body: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Label(title, systemImage: systemImage)
-                Spacer(minLength: 8)
-                Text(display)
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
 
-            Slider(value: $value, in: range, step: step)
-                .accessibilityLabel(title)
-                .accessibilityValue(display)
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 20))
+                    .frame(width: 22)
+
+                Slider(value: $value, in: range, step: step)
+                    .accessibilityLabel(title)
+                    .accessibilityValue(display)
+
+                Text(display)
+                    .font(.system(size: 14).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, alignment: .trailing)
+            }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
+        .frame(minHeight: 84, alignment: .center)
     }
 }

@@ -6,11 +6,11 @@
 //
 //  Liquid Glass 只出现在这里。正文画布不加任何玻璃效果。
 //
-//  ── 布局来源 ──
-//
-//  顶栏：左圆形关闭 / 中间状态胶囊 / 右圆形书签
-//  底栏：左回跳（有跳转历史时才出现）/ 中间页码胶囊 / 右更多菜单
-//  目录、搜索、设置都收进「更多」菜单，顶栏不再堆按钮。
+//  尺寸取自 iOS 26 Apple Books 实测规范：
+//  - 圆形按钮 44×44（玻璃圆 44pt，图标 16pt）
+//  - 状态胶囊高 28pt、字号 12pt；页码胶囊高 29pt、字号 12.5pt
+//  - 顶栏距顶 0（贴着安全区），底栏距底 1pt
+//  - 快速定位条常态 7.5×33%，拖拽态 18×46%
 //
 
 import SwiftUI
@@ -30,10 +30,8 @@ struct GlassIconButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(tint)
-                // 视觉 40pt，触控热区 44pt
-                .frame(width: 40, height: 40)
-                .glassEffect(.regular.interactive(), in: Circle())
                 .frame(width: 44, height: 44)
+                .glassEffect(.regular.interactive(), in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -62,11 +60,11 @@ struct ReaderTopBar: View {
             Spacer(minLength: 0)
 
             Text(statusText)
-                .font(.footnote.weight(.medium))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .glassEffect(.regular, in: Capsule())
                 .contentTransition(.opacity)
                 .accessibilityLabel("阅读状态")
@@ -81,8 +79,8 @@ struct ReaderTopBar: View {
                 action: onToggleBookmark
             )
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        .padding(.leading, 16)
+        .padding(.trailing, 18)
     }
 }
 
@@ -110,11 +108,11 @@ struct ReaderBottomBar: View {
             Spacer(minLength: 0)
 
             Text(pageText)
-                .font(.footnote.monospacedDigit().weight(.medium))
+                .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .glassEffect(.regular, in: Capsule())
                 .contentTransition(.numericText())
                 .accessibilityLabel("页码")
@@ -128,8 +126,9 @@ struct ReaderBottomBar: View {
                 action: onOpenMenu
             )
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.leading, 29)
+        .padding(.trailing, 30)
+        .padding(.bottom, 1)
     }
 }
 
@@ -144,13 +143,23 @@ struct ReaderQuickMenu: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            row("目录", systemImage: "list.bullet.rectangle.portrait", action: onOpenTOC)
+            row("目录", systemImage: "list.bullet.rectangle", action: onOpenTOC)
+            divider
             row("在图书中搜索", systemImage: "magnifyingglass", action: onOpenSearch)
+            divider
             row("主题与设置", systemImage: "textformat.size", action: onOpenSettings)
         }
-        .padding(6)
-        .frame(width: 232)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.vertical, 4)
+        .frame(width: 250)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(height: 0.5)
+            .padding(.leading, 20)
+            .accessibilityHidden(true)
     }
 
     private func row(
@@ -159,17 +168,17 @@ struct ReaderQuickMenu: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(width: 24)
+                    .font(.system(size: 19, weight: .regular))
+                    .frame(width: 28, alignment: .center)
                 Text(title)
-                    .font(.subheadline)
+                    .font(.system(size: 16))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .padding(.horizontal, 12)
-            .frame(height: 44)
+            .padding(.horizontal, 20)
+            .frame(height: 48.5)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -181,8 +190,8 @@ struct ReaderQuickMenu: View {
 
 /// 右侧边缘的纵向快速定位条。
 ///
-/// 拖动时在滑块左侧浮出双行气泡（章节名 + 目标页码），松手才真正跳转，
-/// 跳转前的位置会进入回跳历史。
+/// 常态是细轨道；拖动时整体放大、外移，并在滑块左侧浮出
+/// 双行气泡（章节名 + 目标页码），松手才真正跳转。
 struct ReaderScrubber: View {
 
     @Bindable var session: ReaderSession
@@ -191,34 +200,39 @@ struct ReaderScrubber: View {
 
     @State private var dragValue: Double?
 
-    private let trackWidth: CGFloat = 4
-    private let trackHeightRatio: CGFloat = 0.62
+    private let normalWidth: CGFloat = 7.5
+    private let activeWidth: CGFloat = 18
+    private let normalHeightRatio: CGFloat = 0.33
+    private let activeHeightRatio: CGFloat = 0.46
 
     var body: some View {
         GeometryReader { proxy in
             let height = max(1, proxy.size.height)
-            let trackHeight = height * trackHeightRatio
+            let isDragging = dragValue != nil
+            let trackWidth = isDragging ? activeWidth : normalWidth
+            let trackHeight = height * (isDragging ? activeHeightRatio : normalHeightRatio)
             let trackTop = (height - trackHeight) / 2
+            let trailing = isDragging ? CGFloat(18) : CGFloat(12)
             let progress = dragValue ?? session.totalProgression
             let thumbY = trackTop + trackHeight * progress
 
             ZStack(alignment: .trailing) {
-                if isActive || dragValue != nil {
+                if isActive || isDragging {
                     Capsule()
-                        .fill(Color.primary.opacity(0.15))
+                        .fill(Color.primary.opacity(0.22))
                         .frame(width: trackWidth, height: trackHeight)
-                        .padding(.trailing, 6)
+                        .padding(.trailing, trailing)
 
                     Capsule()
-                        .fill(ReaderTheme.paper.accentColor)
-                        .frame(width: trackWidth, height: 44)
-                        .padding(.trailing, 6)
-                        .offset(y: thumbY - height / 2)
+                        .fill(Color.primary.opacity(0.55))
+                        .frame(width: trackWidth, height: max(44, trackHeight * progress))
+                        .frame(height: trackHeight, alignment: .top)
+                        .padding(.trailing, trailing)
                 }
 
-                if dragValue != nil {
+                if isDragging {
                     callout(for: progress)
-                        .padding(.trailing, 22)
+                        .padding(.trailing, trailing + trackWidth + 2)
                         .offset(y: clampedY(thumbY, height: height))
                         .allowsHitTesting(false)
                 }
@@ -243,23 +257,24 @@ struct ReaderScrubber: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .animation(.snappy(duration: 0.22), value: isDragging)
         }
         .accessibilityHidden(true)
     }
 
     private func callout(for progress: Double) -> some View {
-        VStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(session.chapterTitle(atProgression: progress))
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .lineLimit(1)
             Text(pageLabel(for: progress))
-                .font(.caption2.monospacedDigit())
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .frame(maxWidth: 210)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: 267, alignment: .leading)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func pageLabel(for progress: Double) -> String {

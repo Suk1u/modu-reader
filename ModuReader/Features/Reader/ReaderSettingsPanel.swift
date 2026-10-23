@@ -4,8 +4,9 @@
 //
 //  「主题与设置」半屏面板。
 //
-//  布局参照 Apple Books：
-//  标题栏 → 字号 / 阅读方式 / 外观 → 亮度 → 主题网格 → 自定义入口。
+//  尺寸取自 iOS 26 Apple Books 实测规范：
+//  标题 18pt Bold、控制胶囊高 44pt、亮度轨道无外框、
+//  主题卡片 100×86（圆角 18）、底部按钮高 47pt。
 //
 //  阅读方式与外观用原生 `Menu`：系统自带 Liquid Glass 菜单、勾选状态、
 //  无障碍语义与键盘导航，不需要自己搭弹出层。
@@ -36,16 +37,16 @@ struct ReaderSettingsPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 0) {
                 header
-                controlRow
-                brightnessRow
-                themeGrid
-                customThemeButton
+                controlRow.padding(.top, 11)
+                brightnessRow.padding(.top, 22)
+                themeGrid.padding(.top, 30)
+                customThemeButton.padding(.top, 15)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 28)
+            .padding(.horizontal, 28)
+            .padding(.top, 12)
+            .padding(.bottom, 42)
         }
         .scrollIndicators(.hidden)
         .sheet(isPresented: $showCustomTheme) {
@@ -64,7 +65,7 @@ struct ReaderSettingsPanel: View {
             }
 
             Text("主题与设置")
-                .font(.headline)
+                .font(.system(size: 18, weight: .bold))
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
@@ -74,10 +75,11 @@ struct ReaderSettingsPanel: View {
     // MARK: - 字号 / 阅读方式 / 外观
 
     private var controlRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             fontSizePill
+                .frame(maxWidth: .infinity)
             iconPills
-                .frame(width: 116)
+                .frame(width: 122)
         }
     }
 
@@ -87,8 +89,8 @@ struct ReaderSettingsPanel: View {
                 session.settings.fontSize = max(Self.minFontSize, session.settings.fontSize - 1)
             } label: {
                 Text("小")
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .font(.system(size: 15))
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -104,8 +106,8 @@ struct ReaderSettingsPanel: View {
                 session.settings.fontSize = min(Self.maxFontSize, session.settings.fontSize + 1)
             } label: {
                 Text("大")
-                    .font(.system(size: 21, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .font(.system(size: 20))
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -128,7 +130,7 @@ struct ReaderSettingsPanel: View {
             } label: {
                 Image(systemName: "book.pages")
                     .font(.system(size: 17, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(.rect)
             }
             .accessibilityLabel("翻页方式")
@@ -142,7 +144,7 @@ struct ReaderSettingsPanel: View {
             } label: {
                 Image(systemName: "circle.righthalf.filled")
                     .font(.system(size: 17, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(.rect)
             }
             .accessibilityLabel("外观")
@@ -179,8 +181,8 @@ struct ReaderSettingsPanel: View {
 
     private var brightnessRow: some View {
         HStack(spacing: 12) {
-            Image(systemName: "sun.min.fill")
-                .font(.system(size: 13))
+            Image(systemName: "sun.min")
+                .font(.system(size: 18))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
 
@@ -188,14 +190,11 @@ struct ReaderSettingsPanel: View {
                 .accessibilityLabel("屏幕亮度")
                 .accessibilityValue("\(Int(brightness * 100))%")
 
-            Image(systemName: "sun.max.fill")
+            Image(systemName: "sun.max")
                 .font(.system(size: 18))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 52)
-        .glassEffect(.regular, in: Capsule())
     }
 
     // MARK: - 主题
@@ -203,7 +202,7 @@ struct ReaderSettingsPanel: View {
     private var themeGrid: some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
-            spacing: 10
+            spacing: 12
         ) {
             ForEach(ReaderTheme.all) { theme in
                 themeCard(theme)
@@ -220,24 +219,29 @@ struct ReaderSettingsPanel: View {
             session.settings.themeName = theme.name
         } label: {
             VStack(spacing: 4) {
-                Text("大小")
-                    .font(.system(size: 26, weight: .bold, design: .serif))
-                    .foregroundStyle(theme.textColor)
+                HStack(alignment: .firstTextBaseline, spacing: 1) {
+                    Text("大")
+                        .font(.system(size: 26, weight: .semibold))
+                    Text("小")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(theme.textColor)
+
                 Text(theme.displayName)
-                    .font(.caption2)
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.secondaryTextColor)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 92)
+            .frame(height: 86)
             .background(
                 theme.backgroundColor,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
-                        isSelected ? Color.white.opacity(0.9) : Color.primary.opacity(0.10),
-                        lineWidth: isSelected ? 2 : 1
+                        isSelected ? Color.white.opacity(0.95) : Color.primary.opacity(0.10),
+                        lineWidth: isSelected ? 2.5 : 1
                     )
             }
             .contentShape(.rect)
@@ -254,12 +258,12 @@ struct ReaderSettingsPanel: View {
             showCustomTheme = true
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "slider.horizontal.2.gobackward")
-                    .font(.system(size: 16, weight: .medium))
+                Image(systemName: "gearshape")
+                    .font(.system(size: 18, weight: .regular))
                 Text("自定义")
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: 16, weight: .semibold))
             }
-            .frame(maxWidth: .infinity, minHeight: 52)
+            .frame(maxWidth: .infinity, minHeight: 47)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
