@@ -98,12 +98,12 @@ struct EPUBMergerTests {
     </html>
     """
 
-    private func makeEPUB() throws -> URL {
+    private func makeEPUB(nav: String = navXML) throws -> URL {
         let entries: [SimpleZipWriter.Entry] = [
             .init(path: "mimetype", data: Data("application/epub+zip".utf8)),
             .init(path: "META-INF/container.xml", data: Data(Self.containerXML.utf8)),
             .init(path: "OEBPS/content.opf", data: Data(Self.packageXML.utf8)),
-            .init(path: "OEBPS/nav.xhtml", data: Data(Self.navXML.utf8)),
+            .init(path: "OEBPS/nav.xhtml", data: Data(nav.utf8)),
             .init(path: "OEBPS/c1.xhtml", data: Data(Self.chapter1.utf8)),
             .init(path: "OEBPS/c2.xhtml", data: Data(Self.chapter2.utf8)),
             .init(path: "OEBPS/style.css", data: Data("body { margin: 0; }".utf8)),
@@ -247,6 +247,42 @@ struct EPUBMergerTests {
         // 样式表只保留一份
         let occurrences = merged.components(separatedBy: "style.css").count - 1
         #expect(occurrences == 1)
+    }
+
+    @Test("目录层级写进嵌套的 ol")
+    func preservesTOCHierarchy() throws {
+        let nested = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+        <head><title>目录</title></head>
+        <body>
+          <nav epub:type="toc">
+            <ol>
+              <li><a href="c1.xhtml">第一卷</a>
+                <ol>
+                  <li><a href="c1.xhtml">第一章 起</a></li>
+                  <li><a href="c2.xhtml#sec">第二章 承</a></li>
+                </ol>
+              </li>
+            </ol>
+          </nav>
+        </body>
+        </html>
+        """
+
+        let source = try makeEPUB(nav: nested)
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("merged-\(UUID().uuidString).epub")
+        defer { try? FileManager.default.removeItem(at: source) }
+        defer { try? FileManager.default.removeItem(at: output) }
+
+        let summary = try EPUBMerger.buildMerged(from: source, to: output)
+        #expect(summary.tocCount == 3)
+
+        let nav = try entry("OEBPS/nav.xhtml", in: output)
+        // 父项后面直接跟子列表，Readium 会据此生成带 children 的目录树
+        #expect(nav.contains(">第一卷</a><ol>"))
+        #expect(nav.contains("第二章 承"))
     }
 
     @Test("单资源 EPUB 不合并")

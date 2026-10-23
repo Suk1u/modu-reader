@@ -4,14 +4,17 @@
 //
 //  EPUB 渲染引擎。基于 Readium 的 EPUBNavigatorViewController（WKWebView）。
 //
-//  ── 为什么 EPUB 交给 WebKit / Readium ──
+//  ── 两个渲染源 ──
 //
-//  EPUB 的排版能力来自 CSS：@font-face 内嵌字体、绝对定位、
-//  图文绕排、竖排、SVG。自研的 TextKit 管线只能提取纯文本，
-//  这些全部丢失 —— 表现为「特效字体渲染不出」「图片位置错乱」。
+//  滚动模式：加载**全书合并版**。Readium 的滚动是按资源的，不合并的话
+//  滚到章末会停住；合并后整本是一条连续内容流，才能无缝上下滑。
 //
-//  Readium 直接加载原始 XHTML + 出版方 CSS，保真度与桌面阅读器一致。
-//  TXT / Markdown 仍走 TextKit 管线（文本格式没有 CSS，TextKit 更快更可控）。
+//  翻页模式：加载**原书**。合并版是单个超大资源，分页要靠 WebKit
+//  对整本书做多栏布局，代价高且容易出问题（实测表现为整页空白）。
+//  翻页模式本来就是按资源分页的，原书每个章节一个资源，正是 Readium
+//  最成熟的路径，页数也按章计算。
+//
+//  两者在切换阅读方式时互换，位置用全书进度对齐。
 //
 
 import UIKit
@@ -45,36 +48,54 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     var hostViewController: UIViewController { self }
 
     /// 全书总页数。
-    ///
-    /// Readium 的 `positions()` 按资源长度切分为等长位置，
-    /// 与 Apple Books 的页码语义一致。
     var totalPageCountValue: Int { totalPositions }
 
     /// 当前页码（1 起）。
     var currentPageNumber: Int {
-        guard let position = navigator?.currentLocation?.locations.position else { return 0 }
-        return position
+        navigator?.currentLocation?.locations.position ?? 0
     }
 
     /// EPUB 自带字体由出版方 CSS 直接生效，无需开关。
     var hasBookFont: Bool { false }
+
+    // MARK: - 渲染源
+
+    /// 阅读内容的来源。
+    private enum Source: Hashable {
+        /// 原始 EPUB（翻页模式）。
+        case original
+        /// 全书合并版（滚动模式）。
+        case merged
+    }
 
     // MARK: - State
 
     private let fileStore: FileStore
     private var book: BookDescriptor?
     private var settings = ReaderSettings()
+
+    private var epubURL: URL?
+    private var mergedURL: URL?
+
     private var publication: ReadiumShared.Publication?
     private var navigator: EPUBNavigatorViewController?
+    private var source: Source = .original
+
     private var chapterHrefs: [String] = []
-    /// 全书位置数（Readium 的 positions 等价于「页」）。
     private var totalPositions = 0
     /// 全书位置列表，用于按总进度精确定位。
     private var positions: [ReadiumShared.Locator] = []
-    /// 合并版的目录链接（每个条目带 #chN 锚点）。
+    /// 按来源缓存，避免来回切换阅读方式时重复计算。
+    private var positionsCache: [Source: [ReadiumShared.Locator]] = [:]
+    /// 合并版的目录链接（每个条目带锚点）。
     private var tocLinks: [ReadiumShared.Link] = []
     /// 每章起始的全书进度，用于按进度反查章节。
     private var chapterStarts: [Double] = []
+    /// 位置统计的代数号。切换来源或重新打开时递增，
+    /// 用来丢弃过期的后台统计结果。
+    private var positionsGeneration = 0
+    /// 是否正在切换渲染源。
+    private var isSwitchingSource = false
 
     // MARK: - Init
 
@@ -98,58 +119,219 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         self.book = book
         self.settings = settings
 
-        // EPUB 用原始文件；TXT / Markdown 用导入时生成的 EPUB。
         let bookDirectory = fileStore.bookDirectory(for: book.id)
-        let epubURL: URL
+        let originalURL: URL
         switch book.kind {
         case .epubReflowable, .epubFixedLayout:
-            epubURL = bookDirectory.appendingPathComponent("source.epub")
+            originalURL = bookDirectory.appendingPathComponent("source.epub")
         default:
-            epubURL = try TextEPUBBuilder.buildIfNeeded(fileStore: fileStore, book: book)
+            originalURL = try TextEPUBBuilder.buildIfNeeded(fileStore: fileStore, book: book)
         }
 
-        guard FileManager.default.fileExists(atPath: epubURL.path) else {
+        guard FileManager.default.fileExists(atPath: originalURL.path) else {
             throw ReadiumStackError.invalidURL
         }
 
-        // 合并整本为单个资源 —— Readium 的滚动是按资源的，
-        // 不合并的话章末会停住，无法无缝滚到下一章。
-        // 合并失败时回退原文件（仍可读，只是章间需要翻页）。
-        //
-        // 产物名带算法版本号：上一版合并文档缺少命名空间声明，
-        // 会让 WebKit 报「Namespace prefix epub for type」并只渲染到出错行。
-        // 换名字可以确保旧的坏产物不会被继续复用。
-        let mergedURL = bookDirectory.appendingPathComponent("merged-v\(EPUBMerger.version).epub")
-        try? FileManager.default.removeItem(
-            at: bookDirectory.appendingPathComponent("merged.epub")
-        )
+        epubURL = originalURL
 
-        var readURL = epubURL
-        if FileManager.default.fileExists(atPath: mergedURL.path) {
-            readURL = mergedURL
-        } else if book.kind != .epubFixedLayout {
+        // 产物名带算法版本号：旧的合并文档缺少命名空间声明，
+        // 会让 WebKit 报「Namespace prefix epub for type」并只渲染到出错行。
+        mergedURL = bookDirectory.appendingPathComponent("merged-v\(EPUBMerger.version).epub")
+
+        // 清掉历史版本的合并产物（v1 缺少命名空间声明、v2 目录是扁平的），
+        // 它们只会白占空间。
+        if let names = try? FileManager.default.contentsOfDirectory(atPath: bookDirectory.path) {
+            let current = mergedURL?.lastPathComponent
+            for name in names
+            where name.hasPrefix("merged") && name.hasSuffix(".epub") && name != current {
+                try? FileManager.default.removeItem(at: bookDirectory.appendingPathComponent(name))
+            }
+        }
+
+        let desired: Source = preferredSource(for: settings)
+        let actual = await resolveSource(desired)
+
+        try await open(source: actual, initialLocator: initialLocator)
+
+        view.backgroundColor = settings.theme.uiBackgroundColor
+        Diagnostics.log(
+            "ReadiumEPUB: \(actual == .merged ? "合并版" : "原书")，共 \(totalPositions) 个位置，\(chapters.count) 章"
+        )
+    }
+
+    /// 当前设置下应当使用的渲染源。
+    private func preferredSource(for settings: ReaderSettings) -> Source {
+        // 固定版式不能合并
+        guard book?.kind != .epubFixedLayout else { return .original }
+        return settings.readingMode == .scroll ? .merged : .original
+    }
+
+    /// 尝试得到目标来源；合并不可用时退回原书。
+    private func resolveSource(_ desired: Source) async -> Source {
+        guard desired == .merged else { return .original }
+        do {
+            _ = try await url(for: .merged)
+            return .merged
+        } catch {
+            return .original
+        }
+    }
+
+    /// 取得某个来源对应的文件，必要时现场生成合并版。
+    private func url(for source: Source) async throws -> URL {
+        switch source {
+        case .original:
+            guard let epubURL else { throw ReadiumStackError.invalidURL }
+            return epubURL
+
+        case .merged:
+            guard let epubURL, let mergedURL else { throw ReadiumStackError.invalidURL }
+            if FileManager.default.fileExists(atPath: mergedURL.path) {
+                return mergedURL
+            }
             do {
                 let summary = try EPUBMerger.buildMerged(from: epubURL, to: mergedURL)
-                readURL = mergedURL
-                Diagnostics.log("ReadiumEPUB: 使用合并版（\(summary.chapterCount) 章 / \(summary.tocCount) 目录项）")
+                Diagnostics.log("ReadiumEPUB: 已生成合并版（\(summary.chapterCount) 章 / \(summary.tocCount) 目录项）")
+                return mergedURL
             } catch EPUBMergeError.notNeeded {
                 Diagnostics.log("ReadiumEPUB: 单资源，无需合并")
+                throw EPUBMergeError.notNeeded
             } catch {
                 // 半成品必须删掉，否则下次启动会被当成有效产物直接加载。
                 try? FileManager.default.removeItem(at: mergedURL)
                 Diagnostics.log("ReadiumEPUB: 合并失败，使用原文件 — \(error.localizedDescription)")
+                throw error
             }
         }
+    }
 
-        let publication = try await ReadiumStack.shared.openPublication(at: readURL)
+    /// 打开指定来源并挂载导航器。
+    private func open(source newSource: Source, initialLocator: Locator?) async throws {
+        let fileURL = try await url(for: newSource)
+        let publication = try await ReadiumStack.shared.openPublication(at: fileURL)
+
         self.publication = publication
+        self.source = newSource
 
         chapters = await makeChapters(from: publication)
         chapterHrefs = publication.readingOrder.map { $0.anyURL.string }
 
+        // 恢复位置可能需要位置列表（旧的 href 属于另一个来源）。
+        positionsGeneration += 1
+        let generation = positionsGeneration
+
+        // 其余情况把位置统计放到导航器之后，避免拖慢首屏。
+        let needsPositions = needsPositionsToRestore(initialLocator, in: publication)
+        positions = needsPositions
+            ? await loadPositions(from: publication, source: newSource)
+            : []
+        totalPositions = positions.count
+
+        let initial = readiumLocator(from: initialLocator)
+        let navigator = try makeNavigator(publication: publication, initialLocation: initial)
+        self.navigator = navigator
+        attachNavigator(navigator)
+
+        if !needsPositions {
+            let publication = publication
+            let source = newSource
+            Task { [weak self] in
+                guard let self else { return }
+                let list = await self.loadPositions(from: publication, source: source)
+                guard self.positionsGeneration == generation else { return }
+                self.positions = list
+                self.totalPositions = list.count
+            }
+        }
+
+        syncChapterIndex()
+    }
+
+    /// 恢复位置是否需要位置列表。
+    ///
+    /// 保存的 href 属于另一个渲染源时（例如上次在滚动模式读合并版，
+    /// 这次在翻页模式读原书），只能靠全书进度定位。
+    private func needsPositionsToRestore(
+        _ locator: Locator?,
+        in publication: ReadiumShared.Publication
+    ) -> Bool {
+        guard let locator else { return false }
+        guard let target = locator.locations.totalProgression, target > 0 else { return false }
+        if locator.href.isEmpty { return true }
+        return !publication.readingOrder.contains { $0.anyURL.string == locator.href }
+    }
+
+    // MARK: - Settings
+
+    func apply(settings: ReaderSettings) async {
+        let previousMode = self.settings.readingMode
+        self.settings = settings
+        view.backgroundColor = settings.theme.uiBackgroundColor
+
+        // 阅读方式在「滚动 / 翻页」之间变化时，渲染源要跟着换。
+        if (previousMode == .scroll) != (settings.readingMode == .scroll) {
+            await switchSourceIfNeeded()
+            return
+        }
+
+        navigator?.submitPreferences(makePreferences(settings))
+    }
+
+    /// 按当前阅读方式切换渲染源。
+    private func switchSourceIfNeeded() async {
+        let desired = preferredSource(for: settings)
+        guard desired != source else {
+            navigator?.submitPreferences(makePreferences(settings))
+            return
+        }
+
+        // 连续切换阅读方式时只跑最后一次，避免两个切换交错。
+        guard !isSwitchingSource else { return }
+        isSwitchingSource = true
+        defer { isSwitchingSource = false }
+
+        let progression = navigator?.currentLocation?.locations.totalProgression
+            ?? totalProgression
+
+        do {
+            let fileURL = try await url(for: desired)
+            let newPublication = try await ReadiumStack.shared.openPublication(at: fileURL)
+            let newPositions = await loadPositions(from: newPublication, source: desired)
+
+            detachNavigator()
+
+            positionsGeneration += 1
+            publication = newPublication
+            source = desired
+            positions = newPositions
+            totalPositions = newPositions.count
+            chapters = await makeChapters(from: newPublication)
+            chapterHrefs = newPublication.readingOrder.map { $0.anyURL.string }
+
+            let initial = closestPosition(to: progression)
+            let navigator = try makeNavigator(publication: newPublication, initialLocation: initial)
+            self.navigator = navigator
+            attachNavigator(navigator)
+
+            syncChapterIndex()
+            onLocatorChange?(currentLocator)
+            Diagnostics.log(
+                "ReadiumEPUB: 切换渲染源 → \(desired == .merged ? "合并版" : "原书")，进度 \(Int(progression * 100))%"
+            )
+        } catch {
+            // 切换失败就留在当前来源，只应用排版偏好。
+            Diagnostics.log("ReadiumEPUB: 切换渲染源失败 — \(error.localizedDescription)")
+            navigator?.submitPreferences(makePreferences(settings))
+        }
+    }
+
+    private func makeNavigator(
+        publication: ReadiumShared.Publication,
+        initialLocation: ReadiumShared.Locator?
+    ) throws -> EPUBNavigatorViewController {
         let navigator = try EPUBNavigatorViewController(
             publication: publication,
-            initialLocation: initialReadiumLocator(from: initialLocator),
+            initialLocation: initialLocation,
             config: EPUBNavigatorViewController.Configuration(
                 preferences: makePreferences(settings),
                 // 滚动模式下禁用翻页手势。
@@ -158,8 +340,6 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 // 因此可以无条件设为 true，不影响分页模式的翻页。
                 disablePageTurnsWhileScrolling: true,
                 // 取消 Readium 默认的上下内容内边距（compact 34pt / regular 62pt）。
-                // 这些内边距会让正文顶部和底部各留一条空白，
-                // 在滚动模式下尤其明显 —— 用户看到的是「上下边界受限」。
                 contentInset: [
                     .compact: (top: 0, bottom: 0),
                     .regular: (top: 0, bottom: 0),
@@ -167,31 +347,27 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             )
         )
         navigator.delegate = self
-        self.navigator = navigator
-
-        addChild(navigator)
-        navigator.view.frame = view.bounds
-        navigator.view.autoresizingMask = [UIView.AutoresizingMask.flexibleWidth, UIView.AutoresizingMask.flexibleHeight]
-        view.addSubview(navigator.view)
-        navigator.didMove(toParent: self)
-
-        // 统计全书位置数（页数）
-        if case .success(let list) = await publication.positions() {
-            positions = list
-            totalPositions = list.count
-        }
-        Diagnostics.log("ReadiumEPUB: 共 \(totalPositions) 个位置，\(chapters.count) 章")
-
-        syncChapterIndex()
-        view.backgroundColor = settings.theme.uiBackgroundColor
+        return navigator
     }
 
-    // MARK: - Settings
+    private func attachNavigator(_ navigator: EPUBNavigatorViewController) {
+        addChild(navigator)
+        navigator.view.frame = view.bounds
+        navigator.view.autoresizingMask = [
+            UIView.AutoresizingMask.flexibleWidth,
+            UIView.AutoresizingMask.flexibleHeight,
+        ]
+        view.addSubview(navigator.view)
+        navigator.didMove(toParent: self)
+    }
 
-    func apply(settings: ReaderSettings) async {
-        self.settings = settings
-        view.backgroundColor = settings.theme.uiBackgroundColor
-        navigator?.submitPreferences(makePreferences(settings))
+    private func detachNavigator() {
+        guard let navigator else { return }
+        navigator.willMove(toParent: nil)
+        navigator.view.removeFromSuperview()
+        navigator.removeFromParent()
+        navigator.delegate = nil
+        self.navigator = nil
     }
 
     /// 把应用的阅读设置映射为 Readium 偏好。
@@ -245,19 +421,34 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     func nextChapter() async {
-        guard currentChapterIndex + 1 < chapters.count else { return }
-        await goToChapter(at: currentChapterIndex + 1)
+        guard let target = navigableIndex(from: currentChapterIndex, step: 1) else { return }
+        await goToChapter(at: target)
     }
 
     func previousChapter() async {
-        guard currentChapterIndex > 0 else { return }
-        await goToChapter(at: currentChapterIndex - 1)
+        guard let target = navigableIndex(from: currentChapterIndex, step: -1) else { return }
+        await goToChapter(at: target)
+    }
+
+    /// 下一个可跳转的章节序号。
+    ///
+    /// 目录里的分组节点（有子项、自身不占独立正文）不参与前后翻章，
+    /// 否则「下一章」会停在原地。
+    private func navigableIndex(from index: Int, step: Int) -> Int? {
+        var candidate = index + step
+        while chapters.indices.contains(candidate) {
+            if !chapters[candidate].isGroup {
+                return candidate
+            }
+            candidate += step
+        }
+        return nil
     }
 
     func goToChapter(at index: Int) async {
         guard chapters.indices.contains(index) else { return }
 
-        // 合并版：章节是目录条目（带 #chN 锚点）
+        // 合并版：章节是目录条目（带锚点）
         if tocLinks.indices.contains(index) {
             _ = await navigator?.go(to: tocLinks[index])
         } else if let publication, publication.readingOrder.indices.contains(index) {
@@ -269,7 +460,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     func go(to locator: Locator, animated: Bool) async {
-        // 目录条目（合并版的 #chN 锚点）优先按 Link 跳转
+        // 目录条目（合并版的锚点）优先按 Link 跳转
         if !locator.href.isEmpty,
            let link = tocLinks.first(where: { $0.href == locator.href }) {
             _ = await navigator?.go(to: link)
@@ -278,7 +469,16 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             return
         }
 
-        guard let readium = initialReadiumLocator(from: locator) else { return }
+        // 只有总进度（进度条拖动）时，需要位置列表才能定位
+        if locator.href.isEmpty,
+           let target = locator.locations.totalProgression,
+           positions.isEmpty,
+           let publication {
+            positions = await loadPositions(from: publication, source: source)
+            totalPositions = positions.count
+        }
+
+        guard let readium = readiumLocator(from: locator) else { return }
         _ = await navigator?.go(to: readium)
         syncChapterIndex()
         onLocatorChange?(currentLocator)
@@ -292,39 +492,71 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         []
     }
 
+    // MARK: - Positions
+
+    private func loadPositions(
+        from publication: ReadiumShared.Publication,
+        source: Source
+    ) async -> [ReadiumShared.Locator] {
+        if let cached = positionsCache[source] {
+            return cached
+        }
+        if case .success(let list) = await publication.positions() {
+            positionsCache[source] = list
+            return list
+        }
+        return []
+    }
+
+    /// 按全书进度找最接近的位置。
+    private func closestPosition(to progression: Double) -> ReadiumShared.Locator? {
+        guard !positions.isEmpty else { return nil }
+        let target = max(0, min(1, progression))
+        let index = Int((target * Double(positions.count - 1)).rounded())
+        return positions[max(0, min(positions.count - 1, index))]
+    }
+
     // MARK: - Chapter mapping
 
     /// 由 publication 生成章节列表。
     ///
-    /// 标题优先取目录（tableOfContents）里对应 href 的 title，
-    /// 没有则用 readingOrder 的 title，再没有就用「第 N 章」。
+    /// 合并版的章节来自目录；目录的层级会保留下来，
+    /// 让目录面板能按「卷 → 章」缩进显示。
     private func makeChapters(from publication: ReadiumShared.Publication) async -> [Chapter] {
-        var toc: [ReadiumShared.Link] = []
+        var entries: [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] = []
         if case .success(let links) = await publication.tableOfContents() {
-            toc = flattenTOC(links)
+            entries = flattenTOC(links, level: 0)
         }
 
         // 合并版只有一个 readingOrder 条目，章节必须从目录派生。
-        if publication.readingOrder.count == 1, toc.count > 1 {
+        if publication.readingOrder.count == 1, entries.count > 1 {
             var result: [Chapter] = []
             var starts: [Double] = []
             var links: [ReadiumShared.Link] = []
 
-            for (index, link) in toc.enumerated() {
-                let located = await publication.locate(link)
-                let progression = located?.locations.totalProgression
-                    ?? (Double(index) / Double(max(1, toc.count)))
+            for (index, entry) in entries.enumerated() {
+                let located = await publication.locate(entry.link)
+                let raw = located?.locations.totalProgression
+                    ?? (Double(index) / Double(max(1, entries.count)))
+                // 位置必须单调不减，否则按进度反查章节会错位
+                let progression = max(raw, starts.last ?? 0)
+
+                let title = entry.link.title.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? "第 \(index + 1) 章"
+
                 result.append(
                     Chapter(
                         id: index,
-                        title: (link.title?.isEmpty == false ? link.title! : "第 \(index + 1) 章"),
-                        filePath: link.href,
+                        title: title,
+                        filePath: entry.link.href,
                         globalStart: index,
-                        characterCount: 1
+                        characterCount: 1,
+                        level: entry.level,
+                        isGroup: entry.isGroup
                     )
                 )
                 starts.append(progression)
-                links.append(link)
+                links.append(entry.link)
             }
 
             chapterStarts = starts
@@ -332,9 +564,12 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             return result
         }
 
-        // 未合并：按 readingOrder 生成，标题取自目录
+        // 未合并：按 readingOrder 生成，标题取自目录（扁平、无层级）
         var titles: [String: String] = [:]
-        collectTitles(from: toc, into: &titles)
+        collectTitles(from: entries.map { $0.link }, into: &titles)
+
+        chapterStarts = []
+        tocLinks = []
 
         var globalStart = 0
         return publication.readingOrder.enumerated().map { index, link in
@@ -352,14 +587,16 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }
     }
 
-    /// 递归展平目录树。
-    private func flattenTOC(_ links: [ReadiumShared.Link]) -> [ReadiumShared.Link] {
-        var result: [ReadiumShared.Link] = []
+    /// 深度优先展平目录树，保留层级并为有子项的节点打上分组标记。
+    private func flattenTOC(
+        _ links: [ReadiumShared.Link],
+        level: Int
+    ) -> [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] {
+        var result: [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] = []
         for link in links {
-            if link.children.isEmpty {
-                result.append(link)
-            } else {
-                result.append(contentsOf: flattenTOC(link.children))
+            result.append((link: link, level: level, isGroup: !link.children.isEmpty))
+            if !link.children.isEmpty {
+                result.append(contentsOf: flattenTOC(link.children, level: level + 1))
             }
         }
         return result
@@ -385,6 +622,12 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             var index = 0
             for (i, start) in chapterStarts.enumerated() where start <= progression + 1e-9 {
                 index = i
+            }
+            // 分组节点与其首个子项起点相同，取更深的那一层
+            while index + 1 < chapterStarts.count,
+                  abs(chapterStarts[index + 1] - chapterStarts[index]) < 1e-9,
+                  chapters.indices.contains(index + 1) {
+                index += 1
             }
             currentChapterIndex = index
             return
@@ -419,21 +662,23 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     /// 应用 Locator → Readium Locator。
-    private func initialReadiumLocator(from locator: Locator?) -> ReadiumShared.Locator? {
+    ///
+    /// 只有总进度（例如进度条拖动、跨来源切换）时，用 positions 找最接近的位置。
+    /// 直接把 href 设为第一章会让 WebKit 跳到章首，而不是目标进度。
+    private func readiumLocator(from locator: Locator?) -> ReadiumShared.Locator? {
         guard let locator, let publication else { return nil }
 
-        // 只有总进度（例如进度条拖动）时，用 positions 找最接近的位置。
-        // 直接把 href 设为第一章会让 WebKit 跳到章首，而不是目标进度。
-        if locator.href.isEmpty,
+        let hasMatchingResource = !locator.href.isEmpty
+            && publication.readingOrder.contains { $0.anyURL.string == locator.href }
+
+        if !hasMatchingResource,
            let target = locator.locations.totalProgression,
-           !positions.isEmpty {
-            let index = Int((target * Double(positions.count - 1)).rounded())
-            return positions[max(0, min(positions.count - 1, index))]
+           let position = closestPosition(to: target) {
+            return position
         }
 
-        // 按 href 找到 readingOrder 里对应的资源
         let link: ReadiumShared.Link? = {
-            if !locator.href.isEmpty,
+            if hasMatchingResource,
                let match = publication.readingOrder.first(where: {
                    $0.anyURL.string == locator.href
                }) {

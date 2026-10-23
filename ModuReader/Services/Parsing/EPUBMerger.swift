@@ -39,8 +39,9 @@ enum EPUBMerger {
     /// 合并算法版本。
     ///
     /// 引擎把它拼进产物文件名，算法有实质变更时递增即可让旧产物自然失效。
-    /// 上一版产物缺少命名空间声明，会让 WebKit 直接报 XML 错误。
-    static let version = 2
+    /// - v2：补全命名空间声明（v1 会让 WebKit 直接报 XML 错误）
+    /// - v3：目录写成嵌套 `<ol>`，保留原书层级
+    static let version = 3
 
     /// 合并结果统计。
     struct Summary {
@@ -81,11 +82,29 @@ enum EPUBMerger {
         var title: String
         var zipPath: String
         var fragment: String?
+        /// 在原目录里的层级（1 起）。
+        var level: Int
     }
 
-    private struct NavEntry {
+    /// 目录节点。保留层级，最终写成嵌套的 `<ol>`。
+    private struct NavNode {
         var title: String
         var anchor: String
+        var children: [NavNode] = []
+    }
+
+    /// 建树前的扁平目录项。
+    private struct NavSeed {
+        var title: String
+        var anchor: String
+        var level: Int
+    }
+
+    /// 解析出的原始目录项（NCX / nav 共用）。
+    private struct RawTOCEntry {
+        var title: String
+        var href: String
+        var level: Int
     }
 
     // MARK: - 入口
@@ -237,33 +256,38 @@ enum EPUBMerger {
             titleByPath[item.zipPath] = item.title
         }
 
-        let navEntries: [NavEntry]
+        let flatNav: [NavSeed]
         if tocItems.count >= sources.count {
             // 目录条目不少于章节数：说明目录比 spine 更细，直接沿用。
-            navEntries = tocItems.compactMap { item in
+            flatNav = tocItems.compactMap { item in
                 guard let index = spineIndexByPath[item.zipPath] else { return nil }
-                return NavEntry(
+                return NavSeed(
                     title: item.title,
                     anchor: anchorID(
                         index: index,
                         fragment: item.fragment,
                         chapterIDs: chapterIDs,
                         duplicatedIDs: duplicatedIDs
-                    )
+                    ),
+                    level: item.level
                 )
             }
         } else {
             // 目录缺失或不完整：每章一条，标题优先取目录，其次取章内标题。
-            navEntries = sources.map { source in
+            flatNav = sources.map { source in
                 let title = titleByPath[source.normalizedPath]
                     ?? (source.heading.isEmpty ? "第 \(source.index + 1) 章" : source.heading)
-                return NavEntry(title: title, anchor: "ch\(source.index)")
+                return NavSeed(title: title, anchor: "ch\(source.index)", level: 0)
             }
         }
 
-        guard !navEntries.isEmpty else {
+        guard !flatNav.isEmpty else {
             throw EPUBMergeError.noContent
         }
+
+        // 还原成树，让阅读器的目录面板能按层级缩进
+        let navTree = buildNavTree(flatNav)
+        let navCount = countNodes(navTree)
 
         // 8. 组装文档
         let mergedXHTML = makeMergedXHTML(
@@ -283,7 +307,7 @@ enum EPUBMerger {
             throw EPUBMergeError.malformedOutput
         }
 
-        let navXHTML = makeNavXHTML(entries: navEntries, title: package.title ?? "目录")
+        let navXHTML = makeNavXHTML(entries: navTree, title: package.title ?? "目录")
 
         // manifest 里的 href 是规范化后的路径，条目表里是 ZIP 原始路径，
         // 两边都要收进集合，否则百分号编码不一致时会漏删。
@@ -316,10 +340,10 @@ enum EPUBMerger {
         try SimpleZipWriter.write(entries: newEntries, to: output)
 
         Diagnostics.log(
-            "EPUBMerger: 合并 \(sources.count) 章 / \(navEntries.count) 目录项 → \(output.lastPathComponent)"
+            "EPUBMerger: 合并 \(sources.count) 章 / \(navCount) 目录项 → \(output.lastPathComponent)"
         )
 
-        return Summary(chapterCount: sources.count, tocCount: navEntries.count)
+        return Summary(chapterCount: sources.count, tocCount: navCount)
     }
 
     // MARK: - 读取辅助
@@ -871,7 +895,7 @@ enum EPUBMerger {
             return []
         }
 
-        let raw: [(title: String, href: String)]
+        let raw: [RawTOCEntry]
         if text.range(of: "<navPoint", options: .caseInsensitive) != nil {
             raw = parseNCX(text)
         } else {
@@ -896,7 +920,14 @@ enum EPUBMerger {
             let key = EPUBParser.normalizePath(absolute)
             guard spineIndexByPath[key] != nil else { continue }
 
-            result.append(TOCItem(title: item.title, zipPath: key, fragment: fragment))
+            result.append(
+                TOCItem(
+                    title: item.title,
+                    zipPath: key,
+                    fragment: fragment,
+                    level: item.level
+                )
+            )
         }
 
         Diagnostics.log("EPUBMerger: 目录原文 \(raw.count) 条，可映射 \(result.count) 条")
@@ -932,8 +963,8 @@ enum EPUBMerger {
         return nil
     }
 
-    /// 解析 NCX（EPUB 2）。
-    private static func parseNCX(_ xml: String) -> [(title: String, href: String)] {
+    /// 解析 NCX（EPUB 2）。层级取自 `navPoint` 的嵌套深度。
+    private static func parseNCX(_ xml: String) -> [RawTOCEntry] {
         guard let data = xml.data(using: .utf8) else { return [] }
         let parser = XMLParser(data: data)
         parser.shouldProcessNamespaces = false
@@ -945,38 +976,78 @@ enum EPUBMerger {
 
     /// 解析 EPUB 3 nav 文档。
     ///
-    /// 优先只取 `<nav epub:type="toc">` 区域，避免把 landmarks / page-list
-    /// 里的链接混进目录。
-    private static func parseNavDocument(_ html: String) -> [(title: String, href: String)] {
-        let region = tocNavRegion(html)
-        let pattern = "<a\\b[^>]*?href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>(.*?)</a>"
-        guard let regex = try? NSRegularExpression(
-            pattern: pattern,
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) else { return [] }
+    /// 只取 `<nav epub:type="toc">` 里的链接，避免把 landmarks / page-list
+    /// 混进目录；层级取自 `<ol>` 的嵌套深度。
+    private static func parseNavDocument(_ html: String) -> [RawTOCEntry] {
+        guard let data = html.data(using: .utf8) else { return [] }
+        let parser = XMLParser(data: data)
+        parser.shouldProcessNamespaces = false
+        let delegate = NavigationDelegate()
+        parser.delegate = delegate
+        // 目录文档偶尔不是良构 XML，能解析多少算多少
+        _ = parser.parse()
 
-        let ns = region as NSString
-        return regex.matches(in: region, range: NSRange(location: 0, length: ns.length))
-            .compactMap { match in
-                guard match.numberOfRanges >= 3 else { return nil }
-                let href = ns.substring(with: match.range(at: 1))
-                let title = cleanText(ns.substring(with: match.range(at: 2)))
-                guard !title.isEmpty else { return nil }
-                return (title: title, href: href)
-            }
+        let all = delegate.items
+        let tocOnly = all.filter { $0.navType.contains("toc") }
+        let chosen = tocOnly.isEmpty ? all : tocOnly
+        return chosen.map { RawTOCEntry(title: $0.title, href: $0.href, level: $0.level) }
     }
 
-    /// 截取 `<nav epub:type="toc">` 所在片段。
-    private static func tocNavRegion(_ html: String) -> String {
-        let markers = ["epub:type=\"toc\"", "epub:type='toc'", "type=\"toc\"", "type='toc'"]
-        for marker in markers {
-            guard let range = html.range(of: marker, options: .caseInsensitive) else { continue }
-            if let close = html.range(of: "</nav>", options: .caseInsensitive,
-                                     range: range.upperBound..<html.endIndex) {
-                return String(html[range.lowerBound..<close.upperBound])
+    /// 把扁平的目录条目还原成树。
+    ///
+    /// 层级先做一次「不得跳级」的钳制，避免出版方数据里
+    /// 1 → 3 这种断档把整棵树建歪。
+    private static func buildNavTree(_ flat: [NavSeed]) -> [NavNode] {
+        var normalized: [NavSeed] = []
+        normalized.reserveCapacity(flat.count)
+        // 以第一条的层级为基准归零（NCX / nav 的层级都是从 1 起）
+        let base = flat.first?.level ?? 0
+        var previous = -1
+        for item in flat {
+            var level = max(0, item.level - base)
+            // 只钳制「跳级」，同级与回退保持原样，否则兄弟节点会被错判成子节点
+            if level > previous + 1 {
+                level = previous + 1
             }
+            normalized.append(NavSeed(title: item.title, anchor: item.anchor, level: level))
+            previous = level
         }
-        return html
+
+        var index = 0
+
+        func parse(level: Int) -> [NavNode] {
+            var nodes: [NavNode] = []
+            while index < normalized.count {
+                let item = normalized[index]
+                if item.level < level { break }
+                if item.level > level {
+                    // 只会深一层；作为当前最后一个节点的子项
+                    guard !nodes.isEmpty else { index += 1; continue }
+                    let children = parse(level: item.level)
+                    nodes[nodes.count - 1].children.append(contentsOf: children)
+                    continue
+                }
+                index += 1
+                var node = NavNode(title: item.title, anchor: item.anchor)
+                if index < normalized.count, normalized[index].level > level {
+                    node.children = parse(level: normalized[index].level)
+                }
+                nodes.append(node)
+            }
+            return nodes
+        }
+
+        return parse(level: 0)
+    }
+
+    private static func countNodes(_ nodes: [NavNode]) -> Int {
+        nodes.reduce(0) { $0 + 1 + countNodes($1.children) }
+    }
+
+    private static func collapseWhitespace(_ text: String) -> String {
+        text.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     // MARK: - 文档生成
@@ -1027,10 +1098,8 @@ enum EPUBMerger {
         """
     }
 
-    private static func makeNavXHTML(entries: [NavEntry], title: String) -> String {
-        let items = entries.map { entry in
-            "<li><a href=\"\(mergedFileName)#\(escape(entry.anchor))\">\(escape(entry.title))</a></li>"
-        }.joined(separator: "\n      ")
+    private static func makeNavXHTML(entries: [NavNode], title: String) -> String {
+        let list = renderNavList(entries)
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -1040,13 +1109,27 @@ enum EPUBMerger {
         <body>
           <nav epub:type="toc" id="toc">
             <h1>\(escape(title))</h1>
-            <ol>
-              \(items)
-            </ol>
+            \(list)
           </nav>
         </body>
         </html>
         """
+    }
+
+    /// 递归输出嵌套 `<ol>`。
+    ///
+    /// Readium 的目录解析器会据此生成带 children 的 Link 树，
+    /// 引擎再把层级带给目录面板。
+    private static func renderNavList(_ nodes: [NavNode]) -> String {
+        var lines: [String] = ["<ol>"]
+        for node in nodes {
+            let children = node.children.isEmpty ? "" : renderNavList(node.children)
+            lines.append(
+                "<li><a href=\"\(mergedFileName)#\(escape(node.anchor))\">\(escape(node.title))</a>\(children)</li>"
+            )
+        }
+        lines.append("</ol>")
+        return lines.joined(separator: "\n")
     }
 
     private static func makePackageDocument(
@@ -1179,12 +1262,11 @@ enum EPUBMerger {
         private struct Point {
             var label: String?
             var src: String?
-            var sequence: Int
+            var level: Int
         }
 
-        private(set) var items: [(title: String, href: String)] = []
+        private(set) var items: [RawTOCEntry] = []
         private var stack: [Point] = []
-        private var sequence = 0
         private var capturing = false
         private var buffer = ""
 
@@ -1197,8 +1279,8 @@ enum EPUBMerger {
         ) {
             switch elementName.lowercased() {
             case "navpoint":
-                sequence += 1
-                stack.append(Point(label: nil, src: nil, sequence: sequence))
+                // 入栈后才算层级：第一个 navPoint 为 1
+                stack.append(Point(label: nil, src: nil, level: stack.count + 1))
             case "text":
                 capturing = true
                 buffer = ""
@@ -1225,9 +1307,7 @@ enum EPUBMerger {
             switch elementName.lowercased() {
             case "text":
                 capturing = false
-                let text = buffer.components(separatedBy: .whitespacesAndNewlines)
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " ")
+                let text = EPUBMerger.collapseWhitespace(buffer)
                 if !text.isEmpty, !stack.isEmpty, stack[stack.count - 1].label == nil {
                     stack[stack.count - 1].label = text
                 }
@@ -1235,8 +1315,91 @@ enum EPUBMerger {
             case "navpoint":
                 guard let point = stack.popLast() else { return }
                 if let label = point.label, let src = point.src {
-                    items.append((title: label, href: src))
+                    items.append(RawTOCEntry(title: label, href: src, level: point.level))
                 }
+            default:
+                break
+            }
+        }
+    }
+
+    // MARK: - EPUB 3 nav
+
+    private final class NavigationDelegate: NSObject, XMLParserDelegate {
+
+        struct Item {
+            var title: String
+            var href: String
+            var level: Int
+            var navType: String
+        }
+
+        private(set) var items: [Item] = []
+        private var olDepth = 0
+        private var navTypes: [String] = []
+        private var anchorHref: String?
+        private var anchorLevel = 1
+        private var buffer = ""
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?,
+            attributes attributeDict: [String: String] = [:]
+        ) {
+            switch elementName.lowercased() {
+            case "nav":
+                // 关闭命名空间处理后，属性名仍是 `epub:type`
+                let type = (attributeDict["epub:type"] ?? attributeDict["type"] ?? "").lowercased()
+                navTypes.append(type)
+                olDepth = 0
+            case "ol":
+                olDepth += 1
+            case "a":
+                if let href = attributeDict["href"] {
+                    anchorHref = href
+                    anchorLevel = max(1, olDepth)
+                    buffer = ""
+                }
+            default:
+                break
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            guard anchorHref != nil else { return }
+            buffer += string
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didEndElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?
+        ) {
+            switch elementName.lowercased() {
+            case "a":
+                if let href = anchorHref {
+                    let title = EPUBMerger.collapseWhitespace(buffer)
+                    if !title.isEmpty {
+                        items.append(
+                            Item(
+                                title: title,
+                                href: href,
+                                level: anchorLevel,
+                                navType: navTypes.last ?? ""
+                            )
+                        )
+                    }
+                }
+                anchorHref = nil
+                buffer = ""
+            case "ol":
+                olDepth = max(0, olDepth - 1)
+            case "nav":
+                if !navTypes.isEmpty { navTypes.removeLast() }
+                olDepth = 0
             default:
                 break
             }

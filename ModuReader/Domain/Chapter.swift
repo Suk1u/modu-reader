@@ -18,19 +18,30 @@ struct Chapter: Identifiable, Hashable, Sendable {
     var globalStart: Int
     /// 章节字符数（UTF-16）。
     var characterCount: Int
+    /// 在目录树中的层级。0 为顶层，1 为「卷」下的「章」，依此类推。
+    var level: Int
+    /// 是否为分组节点。
+    ///
+    /// 目录里带子项的条目（例如「第一卷」）本身通常不对应一段独立正文，
+    /// 它只是子章节的容器。列表里要显示，但不参与「上一章 / 下一章」。
+    var isGroup: Bool
 
     init(
         id: Int,
         title: String,
         filePath: String,
         globalStart: Int,
-        characterCount: Int
+        characterCount: Int,
+        level: Int = 0,
+        isGroup: Bool = false
     ) {
         self.id = id
         self.title = title
         self.filePath = filePath
         self.globalStart = globalStart
         self.characterCount = characterCount
+        self.level = level
+        self.isGroup = isGroup
     }
 }
 
