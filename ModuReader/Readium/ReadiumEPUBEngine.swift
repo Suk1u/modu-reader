@@ -716,6 +716,44 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }
     }
 
+    // MARK: - 章节页码
+
+    /// 当前章节的页码范围。
+    ///
+    /// 合并版把章节的起始进度按全书位置数换算成页码；
+    /// 原书（翻页模式）没有章节起始进度，返回 nil，界面退化为全书页码。
+    func chapterPageRange() -> ClosedRange<Int>? {
+        guard !chapterStarts.isEmpty,
+              totalPositions > 0,
+              chapters.indices.contains(currentChapterIndex) else { return nil }
+
+        let start = Int((chapterStarts[currentChapterIndex] * Double(totalPositions)).rounded(.down)) + 1
+        let nextStart: Int
+        if currentChapterIndex + 1 < chapterStarts.count {
+            nextStart = Int((chapterStarts[currentChapterIndex + 1] * Double(totalPositions)).rounded(.down)) + 1
+        } else {
+            nextStart = totalPositions + 1
+        }
+
+        let lower = min(max(start, 1), totalPositions)
+        let upper = min(max(nextStart - 1, lower), totalPositions)
+        return lower...upper
+    }
+
+    func chapterTitle(atProgression progression: Double) -> String? {
+        guard !chapterStarts.isEmpty else { return nil }
+        var index = 0
+        for (i, start) in chapterStarts.enumerated() where start <= progression + 1e-9 {
+            index = i
+        }
+        // 分组节点与其首个子项起点相同，取更深的那一层
+        while index + 1 < chapterStarts.count,
+              abs(chapterStarts[index + 1] - chapterStarts[index]) < 1e-9 {
+            index += 1
+        }
+        return chapters.indices.contains(index) ? chapters[index].title : nil
+    }
+
     // MARK: - Locator conversion
 
     /// Readium Locator → 应用 Locator。

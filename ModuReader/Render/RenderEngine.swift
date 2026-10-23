@@ -90,6 +90,14 @@ protocol RenderEngine: AnyObject {
     /// 当前页码（1 起）。WebKit 引擎返回 0。
     var currentPageNumber: Int { get }
 
+    /// 当前章节在全书中占的页码区间（1 起）。
+    ///
+    /// 引擎算不出来时返回 nil，界面退化为只显示全书页码。
+    func chapterPageRange() -> ClosedRange<Int>?
+
+    /// 指定全书进度落在哪一章。
+    func chapterTitle(atProgression progression: Double) -> String?
+
     /// 本书是否内嵌了可选字体。
     var hasBookFont: Bool { get }
 
@@ -107,6 +115,8 @@ extension RenderEngine {
     var totalPageCountValue: Int { 0 }
     var currentPageNumber: Int { 0 }
     var hasBookFont: Bool { false }
+    func chapterPageRange() -> ClosedRange<Int>? { nil }
+    func chapterTitle(atProgression progression: Double) -> String? { nil }
 }
 
 /// 一条搜索结果。

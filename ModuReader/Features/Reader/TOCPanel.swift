@@ -4,7 +4,10 @@
 //
 //  目录面板。大目录用 List 懒加载，禁止一次性构建所有行。
 //
-//  目录保留原书的层级（卷 → 章 → 节）：子项按层级缩进，
+//  列表排版保持不变；顶部改为「圆形关闭按钮 + 书名 + 当前页码」，
+//  与阅读器其余面板的头部保持一致。
+//
+//  目录保留原书层级（卷 → 章 → 节）：子项按层级缩进，
 //  带子项的分组节点加粗显示，不用序号占位。
 //
 
@@ -13,6 +16,10 @@ import SwiftUI
 struct TOCPanel: View {
 
     let session: ReaderSession
+    /// 书名，作为面板主标题。
+    let bookTitle: String
+    /// 当前页码，作为副标题。
+    let pageText: String
     let onSelect: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -46,7 +53,8 @@ struct TOCPanel: View {
             List {
                 ForEach(filteredChapters) { chapter in
                     Button {
-                        session.goToChapter(chapter.id)
+                        // 记下跳转前的位置，底栏会出现回跳按钮
+                        session.goToChapterWithHistory(chapter.id)
                         onSelect()
                         dismiss()
                     } label: {
@@ -57,12 +65,33 @@ struct TOCPanel: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("目录")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "搜索章节")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭目录")
+                }
+
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text(bookTitle)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text(pageText)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }

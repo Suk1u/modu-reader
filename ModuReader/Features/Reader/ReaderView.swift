@@ -4,6 +4,13 @@
 //
 //  阅读主界面。SwiftUI 负责功能层，UIKit 引擎负责阅读画布。
 //
+//  ── 交互 ──
+//
+//  单击正文：切换沉浸阅读（工具栏显隐）。
+//  顶栏：关闭 / 状态胶囊 / 书签。
+//  底栏：回跳（有跳转历史才出现）/ 页码胶囊 / 更多菜单。
+//  右侧边缘：快速定位条，拖动时浮出章节名与目标页码。
+//
 
 import SwiftUI
 import SwiftData
@@ -23,6 +30,9 @@ struct ReaderView: View {
     @State private var showTOC = false
     @State private var showSettings = false
     @State private var showSearch = false
+    @State private var showQuickMenu = false
+    /// 书签操作的临时提示，1.5 秒后回到常规状态文案。
+    @State private var statusOverride: String?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -34,7 +44,24 @@ struct ReaderView: View {
                 ReaderCanvas(engine: session.engine.hostViewController)
                     .ignoresSafeArea()
 
-                chromeOverlay(session: session)
+                if showChrome {
+                    ReaderScrubber(session: session, isActive: showChrome)
+                        .ignoresSafeArea()
+
+                    if showQuickMenu {
+                        // 点空白处收起菜单
+                        Color.clear
+                            .contentShape(.rect)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.18)) {
+                                    showQuickMenu = false
+                                }
+                            }
+                    }
+
+                    chromeOverlay(session: session)
+                }
             } else {
                 ProgressView("正在打开…")
                     .task { await prepare() }
@@ -64,7 +91,11 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showTOC) {
             if let session {
-                TOCPanel(session: session) {
+                TOCPanel(
+                    session: session,
+                    bookTitle: book.title,
+                    pageText: pageText(for: session)
+                ) {
                     showTOC = false
                     showChrome = false
                 }
@@ -75,7 +106,7 @@ struct ReaderView: View {
         .sheet(isPresented: $showSettings) {
             if let session {
                 ReaderSettingsPanel(session: session)
-                    .presentationDetents([.height(420), .large])
+                    .presentationDetents([.height(430), .large])
                     .presentationDragIndicator(.visible)
             }
         }
@@ -95,28 +126,109 @@ struct ReaderView: View {
 
     @ViewBuilder
     private func chromeOverlay(session: ReaderSession) -> some View {
-        if showChrome {
-            VStack(spacing: 0) {
-                ReaderTopBar(
-                    title: book.title,
-                    onBack: {
-                        Task {
-                            await session.saveProgress()
-                            dismiss()
-                        }
-                    },
-                    onOpenTOC: { showTOC = true },
-                    onOpenSearch: { showSearch = true }
-                )
+        VStack(spacing: 8) {
+            ReaderTopBar(
+                statusText: statusText(for: session),
+                isBookmarked: session.isBookmarked,
+                onClose: {
+                    Task {
+                        await session.saveProgress()
+                        dismiss()
+                    }
+                },
+                onToggleBookmark: { toggleBookmark(session) }
+            )
 
-                Spacer(minLength: 0)
+            Spacer(minLength: 0)
 
-                ReaderBottomBar(
-                    session: session,
-                    onOpenSettings: { showSettings = true }
+            if showQuickMenu {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    ReaderQuickMenu(
+                        onOpenTOC: { presentPanel(.toc) },
+                        onOpenSearch: { presentPanel(.search) },
+                        onOpenSettings: { presentPanel(.settings) }
+                    )
+                }
+                .padding(.horizontal, 16)
+                .transition(
+                    .scale(scale: 0.9, anchor: .bottomTrailing)
+                        .combined(with: .opacity)
                 )
             }
-            .transition(.opacity)
+
+            ReaderBottomBar(
+                pageText: pageText(for: session),
+                canReturn: session.canReturnToJumpOrigin,
+                onReturn: {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        session.returnToJumpOrigin()
+                    }
+                },
+                onOpenMenu: {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        showQuickMenu.toggle()
+                    }
+                }
+            )
+        }
+        .transition(.opacity)
+    }
+
+    // MARK: - 面板
+
+    private enum Panel {
+        case toc
+        case search
+        case settings
+    }
+
+    private func presentPanel(_ panel: Panel) {
+        withAnimation(.snappy(duration: 0.18)) {
+            showQuickMenu = false
+        }
+        switch panel {
+        case .toc: showTOC = true
+        case .search: showSearch = true
+        case .settings: showSettings = true
+        }
+    }
+
+    // MARK: - 文案
+
+    private func statusText(for session: ReaderSession) -> String {
+        if let statusOverride { return statusOverride }
+
+        if let remaining = session.chapterRemainingPages {
+            return remaining <= 0 ? "本章最后一页" : "本章还剩 \(remaining) 页"
+        }
+        if session.totalPageCount > 0 {
+            return "第 \(max(session.currentPageNumber, 1))/\(session.totalPageCount) 页"
+        }
+        return "\(percent(session.totalProgression))"
+    }
+
+    private func pageText(for session: ReaderSession) -> String {
+        if session.totalPageCount > 0 {
+            return "\(max(session.currentPageNumber, 1))/\(session.totalPageCount)页"
+        }
+        return percent(session.totalProgression)
+    }
+
+    private func percent(_ value: Double) -> String {
+        "\(Int((min(max(value, 0), 1) * 100).rounded()))%"
+    }
+
+    private func toggleBookmark(_ session: ReaderSession) {
+        session.toggleBookmark()
+        let text = session.isBookmarked ? "书签：已添加" : "书签：已移除"
+        statusOverride = text
+
+        Task {
+            try? await Task<Never, Never>.sleep(for: .seconds(1.5))
+            if statusOverride == text {
+                statusOverride = nil
+            }
         }
     }
 
@@ -129,9 +241,6 @@ struct ReaderView: View {
         // 全部走 Readium（WKWebView）：
         // - EPUB 直接加载原始文件，保留出版方 CSS 与内嵌字体
         // - TXT / Markdown 在打开时打包成标准 EPUB 再加载
-        //
-        // 统一渲染路径后，连续滚动、页数统计、主题配色、字体回退
-        // 在所有格式上表现一致，不再维护两套排版实现。
         let engine: any RenderEngine = ReadiumEPUBEngine(fileStore: fileStore)
         let session = ReaderSession(
             book: book,
@@ -143,6 +252,9 @@ struct ReaderView: View {
         session.onToggleChrome = {
             withAnimation(.easeOut(duration: 0.18)) {
                 showChrome.toggle()
+                if !showChrome {
+                    showQuickMenu = false
+                }
             }
         }
 

@@ -66,6 +66,21 @@ final class ReaderSession {
     /// 点击中央区域时的回调（由 ReaderView 接管 chrome 显隐）。
     var onToggleChrome: (() -> Void)?
 
+    /// 是否已给当前位置加书签。
+    private(set) var isBookmarked: Bool = false
+
+    /// 跳转前的位置（全书进度）。nil 表示没有可回跳的历史。
+    private(set) var jumpOrigin: Double?
+
+    /// 是否有可回跳的位置。
+    var canReturnToJumpOrigin: Bool { jumpOrigin != nil }
+
+    /// 本章还剩多少页。引擎给不出章节页码区间时返回 nil。
+    var chapterRemainingPages: Int? {
+        guard currentPageNumber > 0, let range = engine.chapterPageRange() else { return nil }
+        return max(0, range.upperBound - currentPageNumber)
+    }
+
     // MARK: - Dependencies
 
     private let modelContext: ModelContext
@@ -123,6 +138,7 @@ final class ReaderSession {
 
         currentChapterIndex = engine.currentChapterIndex
         totalProgression = engine.totalProgression
+        isBookmarked = progressEntity?.bookmarkJSON != nil
     }
 
     /// 保存进度。离开阅读器、进入后台时调用。
@@ -180,6 +196,49 @@ final class ReaderSession {
             await engine.go(to: locator, animated: false)
             syncChapterState()
         }
+    }
+
+    // MARK: - 跳转历史
+
+    /// 跳转到章节，并记下跳转前的位置。
+    func goToChapterWithHistory(_ index: Int) {
+        jumpOrigin = totalProgression
+        goToChapter(index)
+    }
+
+    /// 按进度跳转，并记下跳转前的位置。
+    func seekWithHistory(toProgression progression: Double) {
+        jumpOrigin = totalProgression
+        seek(toProgression: progression)
+    }
+
+    /// 回到跳转前的位置。再点一次会换回刚才离开的位置。
+    func returnToJumpOrigin() {
+        guard let origin = jumpOrigin else { return }
+        jumpOrigin = totalProgression
+        seek(toProgression: origin)
+    }
+
+    /// 指定全书进度所在的章节标题。
+    func chapterTitle(atProgression progression: Double) -> String {
+        engine.chapterTitle(atProgression: progression) ?? currentChapterTitle
+    }
+
+    // MARK: - 书签
+
+    /// 在当前阅读位置添加 / 移除书签。
+    func toggleBookmark() {
+        guard let entity = ensureProgressEntity() else { return }
+
+        if entity.bookmarkJSON != nil {
+            entity.bookmarkJSON = nil
+            isBookmarked = false
+        } else {
+            guard let data = try? JSONEncoder().encode(engine.currentLocator) else { return }
+            entity.bookmarkJSON = data
+            isBookmarked = true
+        }
+        try? modelContext.save()
     }
 
     // MARK: - Search
@@ -267,30 +326,36 @@ final class ReaderSession {
         }
         lastSavedAt = now
 
-        guard let data = try? JSONEncoder().encode(locator) else { return }
+        guard let data = try? JSONEncoder().encode(locator),
+              let entity = ensureProgressEntity() else { return }
 
-        if let progressEntity {
-            progressEntity.locatorJSON = data
-            progressEntity.totalProgression = progression
-            progressEntity.updatedAt = now
-        } else {
-            let bookID = book.id
-            let descriptor = FetchDescriptor<BookEntity>(
-                predicate: #Predicate { $0.id == bookID }
-            )
-            guard let bookEntity = try? modelContext.fetch(descriptor).first else { return }
-
-            let entity = ProgressEntity(
-                locatorJSON: data,
-                totalProgression: progression,
-                updatedAt: now
-            )
-            entity.book = bookEntity
-            modelContext.insert(entity)
-            progressEntity = entity
-        }
+        entity.locatorJSON = data
+        entity.totalProgression = progression
+        entity.updatedAt = now
 
         try? modelContext.save()
+    }
+
+    /// 取得（必要时创建）本书的进度实体。
+    @discardableResult
+    private func ensureProgressEntity() -> ProgressEntity? {
+        if let progressEntity { return progressEntity }
+
+        let bookID = book.id
+        let descriptor = FetchDescriptor<BookEntity>(
+            predicate: #Predicate { $0.id == bookID }
+        )
+        guard let bookEntity = try? modelContext.fetch(descriptor).first else { return nil }
+
+        let entity = ProgressEntity(
+            locatorJSON: Data(),
+            totalProgression: engine.totalProgression,
+            updatedAt: Date()
+        )
+        entity.book = bookEntity
+        modelContext.insert(entity)
+        progressEntity = entity
+        return entity
     }
 
     // MARK: - Interaction

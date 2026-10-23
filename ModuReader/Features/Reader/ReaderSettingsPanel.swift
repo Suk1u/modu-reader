@@ -21,11 +21,20 @@ struct ReaderSettingsPanel: View {
                 spacingSection
                 fontFamilySection
             }
-            .navigationTitle("阅读设置")
+            .navigationTitle("主题与设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭设置")
                 }
             }
         }

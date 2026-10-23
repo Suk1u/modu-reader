@@ -95,12 +95,23 @@ final class ProgressEntity {
     var locatorJSON: Data
     var totalProgression: Double
     var updatedAt: Date
+    /// JSON 编码的书签位置。nil 表示本书没有书签。
+    ///
+    /// 单书单书签：与顶栏那个「有 / 无」按钮一一对应，
+    /// 收藏列表等需求再单独建实体。
+    var bookmarkJSON: Data?
     var book: BookEntity?
 
-    init(locatorJSON: Data, totalProgression: Double, updatedAt: Date = Date()) {
+    init(
+        locatorJSON: Data,
+        totalProgression: Double,
+        updatedAt: Date = Date(),
+        bookmarkJSON: Data? = nil
+    ) {
         self.locatorJSON = locatorJSON
         self.totalProgression = totalProgression
         self.updatedAt = updatedAt
+        self.bookmarkJSON = bookmarkJSON
     }
 
     /// 解码 Locator。失败时返回 nil（不崩溃）。
