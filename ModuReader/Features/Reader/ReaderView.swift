@@ -24,6 +24,7 @@ struct ReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var session: ReaderSession?
     @State private var showChrome = false
@@ -33,6 +34,8 @@ struct ReaderView: View {
     @State private var showQuickMenu = false
     /// 书签操作的临时提示，1.5 秒后回到常规状态文案。
     @State private var statusOverride: String?
+    /// 阅读区亮度 0...1，通过遮罩压暗画布。
+    @State private var brightness: Double = 0
     @State private var errorMessage: String?
 
     var body: some View {
@@ -43,6 +46,12 @@ struct ReaderView: View {
 
                 ReaderCanvas(engine: session.engine.hostViewController)
                     .ignoresSafeArea()
+
+                // 亮度遮罩：只压暗画布，不参与任何交互
+                Color.black
+                    .opacity(brightness * 0.55)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
 
                 if showChrome {
                     ReaderScrubber(session: session, isActive: showChrome)
@@ -81,6 +90,9 @@ struct ReaderView: View {
                 Task { await session?.saveProgress() }
             }
         }
+        .onChange(of: colorScheme) { _, scheme in
+            applySystemAppearanceIfNeeded(scheme: scheme)
+        }
         .alert("打开失败", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -105,9 +117,10 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showSettings) {
             if let session {
-                ReaderSettingsPanel(session: session)
-                    .presentationDetents([.height(430), .large])
+                ReaderSettingsPanel(session: session, brightness: $brightness)
+                    .presentationDetents([.fraction(0.66), .large])
                     .presentationDragIndicator(.visible)
+                    .presentationBackground(.ultraThinMaterial)
             }
         }
         .sheet(isPresented: $showSearch) {
@@ -232,6 +245,15 @@ struct ReaderView: View {
         }
     }
 
+    /// 「匹配设备」时，主题要跟着当前明暗走。
+    private func applySystemAppearanceIfNeeded(scheme: ColorScheme) {
+        guard let session, session.settings.followSystemAppearance else { return }
+        let target = scheme == .dark ? ReaderTheme.night : ReaderTheme.paper
+        if session.settings.themeName != target.name {
+            session.settings.themeName = target.name
+        }
+    }
+
     // MARK: - Prepare
 
     private func prepare() async {
@@ -261,6 +283,7 @@ struct ReaderView: View {
         do {
             try await session.start()
             self.session = session
+            applySystemAppearanceIfNeeded(scheme: colorScheme)
         } catch {
             errorMessage = error.localizedDescription
         }

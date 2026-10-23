@@ -122,7 +122,19 @@ struct ReaderTheme: Identifiable, Hashable, Sendable {
         isDark: false
     )
 
-    static let all: [ReaderTheme] = [.paper, .night, .pureBlack, .sepia, .green]
+    /// 高对比黑白。OLED 下最省电，也最接近系统「原始」主题。
+    static let original = ReaderTheme(
+        name: "original",
+        displayName: "原始",
+        background: RGBColor(0, 0, 0),
+        text: RGBColor(1, 1, 1),
+        secondaryText: RGBColor(0.62, 0.62, 0.62),
+        accent: RGBColor(0.04, 0.52, 1.0),
+        isDark: true
+    )
+
+    /// 主题网格的排列顺序：三个浅色在前，三个深色在后。
+    static let all: [ReaderTheme] = [.paper, .sepia, .green, .night, .pureBlack, .original]
 
     static func named(_ name: String) -> ReaderTheme {
         all.first { $0.name == name } ?? .paper

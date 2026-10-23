@@ -28,10 +28,12 @@ struct GlassIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 44, height: 44)
+                // 视觉 40pt，触控热区 44pt
+                .frame(width: 40, height: 40)
                 .glassEffect(.regular.interactive(), in: Circle())
+                .frame(width: 44, height: 44)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -63,8 +65,8 @@ struct ReaderTopBar: View {
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 11)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .glassEffect(.regular, in: Capsule())
                 .contentTransition(.opacity)
                 .accessibilityLabel("阅读状态")
@@ -111,8 +113,8 @@ struct ReaderBottomBar: View {
                 .font(.footnote.monospacedDigit().weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 11)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .glassEffect(.regular, in: Capsule())
                 .contentTransition(.numericText())
                 .accessibilityLabel("页码")
