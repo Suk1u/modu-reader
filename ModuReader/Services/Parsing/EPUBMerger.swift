@@ -41,7 +41,8 @@ enum EPUBMerger {
     /// 引擎把它拼进产物文件名，算法有实质变更时递增即可让旧产物自然失效。
     /// - v2：补全命名空间声明（v1 会让 WebKit 直接报 XML 错误）
     /// - v3：目录写成嵌套 `<ol>`，保留原书层级
-    static let version = 3
+    /// - v4：目录可用性改按覆盖率判断；补滚动模式的宽度自适应样式
+    static let version = 4
 
     /// 合并结果统计。
     struct Summary {
@@ -256,9 +257,24 @@ enum EPUBMerger {
             titleByPath[item.zipPath] = item.title
         }
 
+        // 判断目录是否足以当章节表用。
+        //
+        // 之前用「条目数 ≥ spine 数」判断，实际会误伤：正常书的目录
+        // 本就不会列封面 / 书名页 / 版权页，条目数常少于 spine，
+        // 结果整本退回按 spine 取标题，没有 <h1> 的章节就只剩「第 N 章」。
+        // 改成看「目录覆盖了多少个 spine 资源」。
+        var covered = Set<Int>()
+        for item in tocItems {
+            if let index = spineIndexByPath[item.zipPath] {
+                covered.insert(index)
+            }
+        }
+        let useTOC = covered.count >= 2
+            && (covered.count * 2 >= sources.count || sources.count <= 2)
+
         let flatNav: [NavSeed]
-        if tocItems.count >= sources.count {
-            // 目录条目不少于章节数：说明目录比 spine 更细，直接沿用。
+        if useTOC {
+            // 目录覆盖得住：直接沿用目录的顺序与标题
             flatNav = tocItems.compactMap { item in
                 guard let index = spineIndexByPath[item.zipPath] else { return nil }
                 return NavSeed(
@@ -1090,6 +1106,21 @@ enum EPUBMerger {
           <title>\(escape(title))</title>
           \(links)
           \(blocks)
+          <style type="text/css">
+          /* 合并版只用于滚动阅读：内容必须跟随视口宽度。
+             出版方 CSS 里常见以 em 为单位的固定宽度，字号调大后会超出
+             屏幕，表现为可以左右拖动、正文右侧被裁掉。 */
+          html, body {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+          }
+          body * { max-width: 100% !important; }
+          body {
+            overflow-wrap: break-word !important;
+            word-wrap: break-word !important;
+          }
+          </style>
         </head>
         <body\(bodyAttributes)>
         \(sections.joined(separator: "\n"))

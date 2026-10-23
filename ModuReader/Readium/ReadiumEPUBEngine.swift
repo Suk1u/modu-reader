@@ -214,7 +214,6 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         self.source = newSource
 
         chapters = await makeChapters(from: publication)
-        chapterHrefs = publication.readingOrder.map { $0.anyURL.string }
 
         // 恢复位置可能需要位置列表（旧的 href 属于另一个来源）。
         positionsGeneration += 1
@@ -306,7 +305,6 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             positions = newPositions
             totalPositions = newPositions.count
             chapters = await makeChapters(from: newPublication)
-            chapterHrefs = newPublication.readingOrder.map { $0.anyURL.string }
 
             let initial = closestPosition(to: progression)
             let navigator = try makeNavigator(publication: newPublication, initialLocation: initial)
@@ -520,27 +518,27 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
 
     /// 由 publication 生成章节列表。
     ///
-    /// 合并版的章节来自目录；目录的层级会保留下来，
-    /// 让目录面板能按「卷 → 章」缩进显示。
+    /// **优先用目录**，而不是 readingOrder：
+    /// - 目录的标题是原书给的，spine 链接往往没有 title，只能退化成「第 N 章」
+    /// - 目录的顺序才是阅读顺序，spine 里常混着封面 / 书名页 / 版权页
+    /// - 目录的层级（卷 → 章）要保留给目录面板
     private func makeChapters(from publication: ReadiumShared.Publication) async -> [Chapter] {
         var entries: [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] = []
         if case .success(let links) = await publication.tableOfContents() {
             entries = flattenTOC(links, level: 0)
         }
 
-        // 合并版只有一个 readingOrder 条目，章节必须从目录派生。
-        if publication.readingOrder.count == 1, entries.count > 1 {
+        if entries.count > 1 {
             var result: [Chapter] = []
-            var starts: [Double] = []
             var links: [ReadiumShared.Link] = []
+            var hrefs: [String] = []
+            var starts: [Double] = []
+
+            // 合并版只有一个资源，只能靠全书进度区分章节；
+            // 原书按资源定位，用 href 判断当前章即可。
+            let useProgression = publication.readingOrder.count == 1
 
             for (index, entry) in entries.enumerated() {
-                let located = await publication.locate(entry.link)
-                let raw = located?.locations.totalProgression
-                    ?? (Double(index) / Double(max(1, entries.count)))
-                // 位置必须单调不减，否则按进度反查章节会错位
-                let progression = max(raw, starts.last ?? 0)
-
                 let title = entry.link.title.flatMap { $0.isEmpty ? nil : $0 }
                     ?? "第 \(index + 1) 章"
 
@@ -555,36 +553,60 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                         isGroup: entry.isGroup
                     )
                 )
-                starts.append(progression)
                 links.append(entry.link)
+                hrefs.append(normalizedHref(entry.link.href))
+
+                if useProgression {
+                    let located = await publication.locate(entry.link)
+                    let raw = located?.locations.totalProgression
+                        ?? (Double(index) / Double(max(1, entries.count)))
+                    // 位置必须单调不减，否则按进度反查章节会错位
+                    starts.append(max(raw, starts.last ?? 0))
+                }
             }
 
             chapterStarts = starts
             tocLinks = links
+            chapterHrefs = hrefs
             return result
         }
 
-        // 未合并：按 readingOrder 生成，标题取自目录（扁平、无层级）
-        var titles: [String: String] = [:]
-        collectTitles(from: entries.map { $0.link }, into: &titles)
-
+        // 目录不可用：退回按 readingOrder 排列。
         chapterStarts = []
         tocLinks = []
+        chapterHrefs = publication.readingOrder.map { normalizedHref($0.anyURL.string) }
 
         var globalStart = 0
         return publication.readingOrder.enumerated().map { index, link in
-            let href = link.anyURL.string
-            let title = titles[href] ?? link.title ?? "第 \(index + 1) 章"
             let chapter = Chapter(
                 id: index,
-                title: title,
-                filePath: href,
+                title: link.title ?? "第 \(index + 1) 章",
+                filePath: link.anyURL.string,
                 globalStart: globalStart,
                 characterCount: 1
             )
             globalStart += 1
             return chapter
         }
+    }
+
+    /// 归一化 href：去掉片段、解码百分号、去掉 `./` 与开头的 `/`。
+    ///
+    /// 目录里的 `ch1.xhtml#sec2` 与 readingOrder / 当前定位里的
+    /// `ch1.xhtml` 必须能对上，否则标题会全部掉进「第 N 章」。
+    private func normalizedHref(_ raw: String) -> String {
+        var value = raw
+        if let hash = value.firstIndex(of: "#") {
+            value = String(value[..<hash])
+        }
+        value = value.removingPercentEncoding ?? value
+        while value.hasPrefix("./") {
+            value.removeFirst(2)
+        }
+        while value.hasPrefix("/") {
+            value.removeFirst()
+        }
+        return value
     }
 
     /// 深度优先展平目录树，保留层级并为有子项的节点打上分组标记。
@@ -600,15 +622,6 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             }
         }
         return result
-    }
-
-    private func collectTitles(from links: [ReadiumShared.Link], into map: inout [String: String]) {
-        for link in links {
-            if let title = link.title, !title.isEmpty {
-                map[link.anyURL.string] = title
-            }
-            collectTitles(from: link.children, into: &map)
-        }
     }
 
     /// 同步当前章节序号。
@@ -633,9 +646,11 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             return
         }
 
-        guard let href = navigator?.currentLocation?.href.string,
-              let index = chapterHrefs.firstIndex(of: href) else { return }
-        currentChapterIndex = index
+        guard let href = navigator?.currentLocation?.href.string else { return }
+        let key = normalizedHref(href)
+        if let index = chapterHrefs.firstIndex(of: key) {
+            currentChapterIndex = index
+        }
     }
 
     // MARK: - Locator conversion
