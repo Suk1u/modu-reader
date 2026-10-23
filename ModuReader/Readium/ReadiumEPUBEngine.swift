@@ -18,6 +18,7 @@
 //
 
 import UIKit
+import WebKit
 @preconcurrency import ReadiumShared
 @preconcurrency import ReadiumNavigator
 
@@ -153,7 +154,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
 
         try await open(source: actual, initialLocator: initialLocator)
 
+        syncChapterIndex()
+
         view.backgroundColor = settings.theme.uiBackgroundColor
+        scheduleOverflowProbe()
         Diagnostics.log(
             "ReadiumEPUB: \(actual == .merged ? "合并版" : "原书")，共 \(totalPositions) 个位置，\(chapters.count) 章"
         )
@@ -316,11 +320,70 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             Diagnostics.log(
                 "ReadiumEPUB: 切换渲染源 → \(desired == .merged ? "合并版" : "原书")，进度 \(Int(progression * 100))%"
             )
+            scheduleOverflowProbe()
         } catch {
             // 切换失败就留在当前来源，只应用排版偏好。
             Diagnostics.log("ReadiumEPUB: 切换渲染源失败 — \(error.localizedDescription)")
             navigator?.submitPreferences(makePreferences(settings))
         }
+    }
+
+    // MARK: - 诊断
+
+    /// 滚动模式下探测「有没有元素宽于视口」。
+    ///
+    /// 溢出的成因取决于每本书的出版方 CSS，光看代码推不出来，
+    /// 所以直接在 WebView 里量一遍，把最宽的几个元素写进日志。
+    private func scheduleOverflowProbe() {
+        guard settings.readingMode == .scroll else { return }
+
+        Task { [weak self] in
+            try? await Task<Never, Never>.sleep(for: .seconds(2))
+            guard let self, self.settings.readingMode == .scroll else { return }
+            guard let webView = Self.firstWebView(in: self.view) else {
+                Diagnostics.log("ReadiumEPUB: 宽度探针未找到 WebView")
+                return
+            }
+
+            let script = """
+            (function(){
+              var vw = window.innerWidth;
+              var sw = document.documentElement.scrollWidth;
+              var bw = document.body ? document.body.scrollWidth : -1;
+              var list = [];
+              var nodes = document.body ? document.body.querySelectorAll('*') : [];
+              for (var i = 0; i < nodes.length && list.length < 6; i++) {
+                var el = nodes[i];
+                var r = el.getBoundingClientRect();
+                if (r.width > vw + 1 || r.right > vw + 1 || r.left < -1) {
+                  var cls = (typeof el.className === 'string') ? el.className.split(' ')[0] : '';
+                  list.push(el.tagName + (el.id ? '#' + el.id : '') + (cls ? '.' + cls : '') +
+                    '[w=' + Math.round(r.width) + ',l=' + Math.round(r.left) + ',r=' + Math.round(r.right) + ']');
+                }
+              }
+              return 'vw=' + vw + ' html.sw=' + sw + ' body.sw=' + bw + ' | ' + list.join(' ; ');
+            })();
+            """
+
+            do {
+                let value = try await webView.evaluateJavaScript(script)
+                Diagnostics.log("ReadiumEPUB: 宽度探针 \(value as? String ?? "无结果")")
+            } catch {
+                Diagnostics.log("ReadiumEPUB: 宽度探针失败 \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func firstWebView(in view: UIView) -> WKWebView? {
+        if let webView = view as? WKWebView, webView.bounds.width > 1 {
+            return webView
+        }
+        for subview in view.subviews {
+            if let found = firstWebView(in: subview) {
+                return found
+            }
+        }
+        return nil
     }
 
     private func makeNavigator(

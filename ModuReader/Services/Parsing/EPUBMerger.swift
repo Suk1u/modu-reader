@@ -42,7 +42,8 @@ enum EPUBMerger {
     /// - v2：补全命名空间声明（v1 会让 WebKit 直接报 XML 错误）
     /// - v3：目录写成嵌套 `<ol>`，保留原书层级
     /// - v4：目录可用性改按覆盖率判断；补滚动模式的宽度自适应样式
-    static let version = 4
+    /// - v5：滚动模式强制折行（white-space / word-break 覆盖）
+    static let version = 5
 
     /// 合并结果统计。
     struct Summary {
@@ -1108,17 +1109,28 @@ enum EPUBMerger {
           \(blocks)
           <style type="text/css">
           /* 合并版只用于滚动阅读：内容必须跟随视口宽度。
-             出版方 CSS 里常见以 em 为单位的固定宽度，字号调大后会超出
-             屏幕，表现为可以左右拖动、正文右侧被裁掉。 */
+             出版方 CSS 里常见以 em 为单位的固定宽度、以及
+             white-space: nowrap / word-break: keep-all 这类禁止折行的写法，
+             字号一调大正文就撑出屏幕，表现为可以左右拖动。 */
           html, body {
             width: auto !important;
             min-width: 0 !important;
             max-width: 100% !important;
           }
-          body * { max-width: 100% !important; }
-          body {
-            overflow-wrap: break-word !important;
+          /* min-width 会压过 max-width，出版方偶尔会写死一个最小宽度 */
+          body * {
+            max-width: 100% !important;
+            min-width: 0 !important;
+          }
+          body, body p, body div, body li, body dd, body blockquote, body span {
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: anywhere !important;
             word-wrap: break-word !important;
+          }
+          pre, code, kbd, samp {
+            white-space: pre-wrap !important;
+            overflow-wrap: anywhere !important;
           }
           </style>
         </head>
