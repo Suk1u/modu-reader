@@ -50,8 +50,8 @@ targets:
       properties:
         CFBundleDisplayName: 墨读
         CFBundleName: ModuReader
-        CFBundleShortVersionString: "0.9.2"
-        CFBundleVersion: "16"
+        CFBundleShortVersionString: "0.9.3"
+        CFBundleVersion: "17"
         CFBundleDevelopmentRegion: zh_CN
         UILaunchScreen:
           UIColorName: LaunchBackground

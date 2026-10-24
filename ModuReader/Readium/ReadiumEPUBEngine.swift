@@ -1068,7 +1068,7 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
     /// - 气泡：就地弹出注释内容
     func navigator(
         _ navigator: EPUBNavigatorViewController,
-        shouldNavigateToNoteAt link: Link,
+        shouldNavigateToNoteAt link: ReadiumShared.Link,
         content: String,
         referrer: String
     ) -> Bool {
