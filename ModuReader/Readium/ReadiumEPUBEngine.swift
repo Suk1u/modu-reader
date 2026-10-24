@@ -866,7 +866,9 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private func renderHighlights() {
         guard let navigator, let publication else { return }
 
-        let tint = UIColor(settings.accent.color)
+        // 高亮统一用暖黄底纹，和 Apple Books 一致；
+        // 强调色只用于界面控件，不参与正文着色。
+        let tint = UIColor(red: 0.98, green: 0.78, blue: 0.32, alpha: 1)
         var decorations: [Decoration] = []
         decorations.reserveCapacity(highlightMarks.count)
 
@@ -1026,6 +1028,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
 
         guard let link else { return nil }
 
+        // 带上文本引用，Readium 才能锚到确切的那一段，
+        // 而不是只按进度落到附近的页边界。
+        let quote = locator.text
+
         return ReadiumShared.Locator(
             href: link.anyURL,
             mediaType: link.mediaType ?? .xhtml,
@@ -1033,6 +1039,11 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 progression: locator.locations.progression,
                 totalProgression: locator.locations.totalProgression,
                 position: locator.locations.page
+            ),
+            text: ReadiumShared.Locator.Text(
+                after: quote?.after,
+                before: quote?.before,
+                highlight: quote?.highlight
             )
         )
     }

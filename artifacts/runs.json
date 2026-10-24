@@ -1,28 +1,28 @@
 {
-  "total_count": 68,
+  "total_count": 69,
   "workflow_runs": [
     {
-      "id": 40068411154,
+      "id": 40068991007,
       "name": "Build Unsigned IPA",
-      "node_id": "WFR_kwLOVR8bSs8AAAAJVENvEg",
+      "node_id": "WFR_kwLOVR8bSs8AAAAJVExIHw",
       "head_branch": "main",
-      "head_sha": "ad4c124759b2ad01cc571e87f3f730a21ad822bf",
+      "head_sha": "505e0662d5c34d3e772201cf260a3edbf554e073",
       "path": ".github/workflows/build-ipa.yml",
-      "display_title": "feat: 长按选中文字添加高亮（Readium 装饰）",
-      "run_number": 68,
+      "display_title": "fix: Locator.text 是非可选结构体，修正高亮相关转换",
+      "run_number": 69,
       "event": "push",
       "status": "in_progress",
       "conclusion": null,
       "workflow_id": 391478422,
-      "check_suite_id": 108606553925,
-      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZSXR_RQ",
-      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154",
-      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40068411154",
+      "check_suite_id": 108608098202,
+      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZSYwPmg",
+      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007",
+      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40068991007",
       "pull_requests": [
 
       ],
-      "created_at": "2026-10-24T05:59:36Z",
-      "updated_at": "2026-10-24T05:59:40Z",
+      "created_at": "2026-10-24T06:08:07Z",
+      "updated_at": "2026-10-24T06:08:11Z",
       "actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -48,7 +48,7 @@
       "referenced_workflows": [
 
       ],
-      "run_started_at": "2026-10-24T05:59:36Z",
+      "run_started_at": "2026-10-24T06:08:07Z",
       "triggering_actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -70,19 +70,19 @@
         "user_view_type": "public",
         "site_admin": false
       },
-      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/jobs",
-      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/logs",
-      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108606553925",
-      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/artifacts",
-      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/cancel",
-      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/rerun",
+      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/jobs",
+      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/logs",
+      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108608098202",
+      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/artifacts",
+      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/cancel",
+      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/rerun",
       "previous_attempt_url": null,
       "workflow_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/workflows/391478422",
       "head_commit": {
-        "id": "ad4c124759b2ad01cc571e87f3f730a21ad822bf",
-        "tree_id": "af5c7842d577cb3a8dfc69ae6e46c33025f7d260",
-        "message": "feat: 长按选中文字添加高亮（Readium 装饰）\n\n- 导航器编辑菜单加入「高亮标记」项（EditingAction 自定义 selector）\n- 选中后读取 currentSelection.locator 存库，并通过 Decoration\n  以 .highlight(tint:) 画到正文上\n- Locator 转换补齐 text（before/highlight/after），这是高亮能\n  再次锚定到文字范围的关键\n- 新增 RenderEngine.applyHighlights / HighlightMark，会话保存后\n  立即下发渲染；切换渲染源、重新打开时自动重画\n- 移除「高亮本页」的页级入口，高亮统一走选区\n\n版本 0.8.0（build 12）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
-        "timestamp": "2026-10-24T05:59:24Z",
+        "id": "505e0662d5c34d3e772201cf260a3edbf554e073",
+        "tree_id": "26913198210131b90b8ec164023fca2b29e4b827",
+        "message": "fix: Locator.text 是非可选结构体，修正高亮相关转换\n\n版本 0.8.1（build 13）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
+        "timestamp": "2026-10-24T06:08:03Z",
         "author": {
           "name": "Suk1u",
           "email": "suk1u@users.noreply.github.com"

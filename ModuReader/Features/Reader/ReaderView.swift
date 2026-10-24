@@ -123,6 +123,7 @@ struct ReaderView: View {
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+                .presentationBackground(Color(uiColor: .systemBackground))
             }
         }
     }

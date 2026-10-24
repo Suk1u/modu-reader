@@ -43,7 +43,8 @@ enum EPUBMerger {
     /// - v3：目录写成嵌套 `<ol>`，保留原书层级
     /// - v4：目录可用性改按覆盖率判断；补滚动模式的宽度自适应样式
     /// - v5：滚动模式强制折行（white-space / word-break 覆盖）
-    static let version = 5
+    /// - v6：脚注引用「注」去掉可点击性
+    static let version = 6
 
     /// 合并结果统计。
     struct Summary {
@@ -219,7 +220,7 @@ enum EPUBMerger {
         sections.reserveCapacity(sources.count)
 
         for source in sources {
-            var body = source.bodyHTML
+            var body = neutralizeNoteReferences(in: source.bodyHTML)
             body = namespaceIDValues(
                 in: body,
                 prefix: "c\(source.index)-",
@@ -684,6 +685,63 @@ enum EPUBMerger {
     }
 
     // MARK: - 改写
+
+    /// 去掉脚注引用（`epub:type="noteref"`）的可点击性。
+    ///
+    /// 合并后这些「注」链接经常跳到错误位置：锚点经过改写、且脚注正文
+    /// 本身就在段落下方。让链接失效，读者直接读下方注释即可。
+    private static func neutralizeNoteReferences(in html: String) -> String {
+        var edits: [(range: Range<String.Index>, replacement: String)] = []
+        var searchStart = html.startIndex
+
+        while let tagStart = html.range(
+            of: "<a",
+            options: .caseInsensitive,
+            range: searchStart..<html.endIndex
+        ) {
+            guard let tagEnd = html.range(of: ">", range: tagStart.upperBound..<html.endIndex) else {
+                break
+            }
+            let tag = String(html[tagStart.lowerBound..<tagEnd.upperBound])
+
+            if tag.lowercased().contains("noteref"),
+               let stripped = removingHref(from: tag) {
+                edits.append((tagStart.lowerBound..<tagEnd.upperBound, stripped))
+            }
+            searchStart = tagEnd.upperBound
+        }
+
+        guard !edits.isEmpty else { return html }
+
+        var result = html
+        for edit in edits.reversed() {
+            result.replaceSubrange(edit.range, with: edit.replacement)
+        }
+        return result
+    }
+
+    /// 去掉标签里的 `href="..."`，保留 id 与其余属性。
+    private static func removingHref(from tag: String) -> String? {
+        guard let href = tag.range(of: "href", options: .caseInsensitive) else { return nil }
+
+        var index = href.upperBound
+        while index < tag.endIndex, tag[index] == " " {
+            index = tag.index(after: index)
+        }
+        guard index < tag.endIndex, tag[index] == "=" else { return nil }
+        index = tag.index(after: index)
+        while index < tag.endIndex, tag[index] == " " {
+            index = tag.index(after: index)
+        }
+        guard index < tag.endIndex, tag[index] == "\"" || tag[index] == "'" else { return nil }
+
+        let quote = tag[index]
+        let valueStart = tag.index(after: index)
+        guard let valueEnd = tag[valueStart...].firstIndex(of: quote) else { return nil }
+        let end = tag.index(after: valueEnd)
+
+        return tag.replacingCharacters(in: href.lowerBound..<end, with: "")
+    }
 
     /// 给**跨章重复**的 id 加前缀。
     ///

@@ -15,6 +15,8 @@ struct HighlightItem: Identifiable, Hashable {
     let progression: Double
     let chapterTitle: String
     let createdAt: Date
+    /// 原始落点。按它能精确跳回高亮处，而不是最近的页边界。
+    let locator: Locator?
 }
 
 /// 目录面板展示用的一条书签。
@@ -23,6 +25,7 @@ struct BookmarkItem: Identifiable, Hashable {
     let progression: Double
     let chapterTitle: String
     let createdAt: Date
+    let locator: Locator?
 }
 
 /// 阅读会话。
@@ -281,6 +284,22 @@ final class ReaderSession {
         seek(toProgression: target)
     }
 
+    /// 按一条标记（书签 / 高亮）的原始落点跳转。
+    ///
+    /// 按进度跳只能落到最近的页边界，高亮会偏出去；用 locator
+    /// 才能带着文本引用回到确切位置。
+    func goToMark(_ locator: Locator?, fallbackProgression: Double) {
+        recordJump()
+        guard let locator, !locator.href.isEmpty else {
+            seek(toProgression: fallbackProgression)
+            return
+        }
+        Task {
+            await engine.go(to: locator, animated: false)
+            syncChapterState()
+        }
+    }
+
     /// 指定全书进度所在的章节标题。
     func chapterTitle(atProgression progression: Double) -> String {
         engine.chapterTitle(atProgression: progression) ?? currentChapterTitle
@@ -357,7 +376,8 @@ final class ReaderSession {
                 id: $0.id,
                 progression: $0.totalProgression,
                 chapterTitle: $0.chapterTitle,
-                createdAt: $0.createdAt
+                createdAt: $0.createdAt,
+                locator: $0.locator
             )
         }
         syncBookmarkState()
@@ -406,7 +426,8 @@ final class ReaderSession {
                 id: $0.id,
                 progression: $0.totalProgression,
                 chapterTitle: $0.chapterTitle,
-                createdAt: $0.createdAt
+                createdAt: $0.createdAt,
+                locator: $0.locator
             )
         }
 

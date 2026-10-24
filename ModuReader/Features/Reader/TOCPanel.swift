@@ -32,6 +32,7 @@ struct TOCPanel: View {
         let title: String
         let date: Date
         let progression: Double
+        let locator: Locator?
     }
 
     enum Section: String, CaseIterable, Identifiable {
@@ -148,7 +149,8 @@ struct TOCPanel: View {
                         id: $0.id,
                         title: $0.chapterTitle,
                         date: $0.createdAt,
-                        progression: $0.progression
+                        progression: $0.progression,
+                        locator: $0.locator
                     )
                 },
                 emptyTitle: "没有书签",
@@ -161,7 +163,8 @@ struct TOCPanel: View {
                         id: $0.id,
                         title: $0.chapterTitle,
                         date: $0.createdAt,
-                        progression: $0.progression
+                        progression: $0.progression,
+                        locator: $0.locator
                     )
                 },
                 emptyTitle: "没有高亮标记",
@@ -250,7 +253,7 @@ struct TOCPanel: View {
                     LazyVStack(spacing: 0) {
                         ForEach(items) { item in
                             Button {
-                                handleMarkTap(id: item.id, progression: item.progression)
+                                handleMarkTap(item)
                             } label: {
                                 markRow(item)
                             }
@@ -302,17 +305,17 @@ struct TOCPanel: View {
         .accessibilityLabel(item.title)
     }
 
-    private func handleMarkTap(id: UUID, progression: Double) {
+    private func handleMarkTap(_ item: MarkRow) {
         if isSelecting {
-            if selection.contains(id) {
-                selection.remove(id)
+            if selection.contains(item.id) {
+                selection.remove(item.id)
             } else {
-                selection.insert(id)
+                selection.insert(item.id)
             }
             return
         }
 
-        session.seekWithHistory(toProgression: progression)
+        session.goToMark(item.locator, fallbackProgression: item.progression)
         onSelect()
         dismiss()
     }
