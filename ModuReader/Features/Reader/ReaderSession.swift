@@ -365,33 +365,21 @@ final class ReaderSession {
 
     // MARK: - 高亮标记
 
-    /// 当前页是否已有高亮。
-    var isHighlighted: Bool {
-        let current = engine.totalProgression
-        return highlights.contains { abs($0.progression - current) < bookmarkTolerance }
-    }
+    /// 把用户选中的文字保存为高亮。
+    private func addHighlight(at locator: Locator) {
+        guard let data = try? JSONEncoder().encode(locator) else { return }
 
-    /// 在当前页添加 / 移除高亮标记。
-    func toggleHighlight() {
-        let current = engine.totalProgression
-
-        if let existing = highlightEntities.first(where: {
-            abs($0.totalProgression - current) < bookmarkTolerance
-        }) {
-            modelContext.delete(existing)
-        } else {
-            guard let data = try? JSONEncoder().encode(engine.currentLocator) else { return }
-            let entity = HighlightEntity(
-                locatorJSON: data,
-                totalProgression: current,
-                chapterTitle: currentChapterTitle,
-                excerpt: ""
-            )
-            entity.book = bookEntity ?? fetchBookEntity()
-            modelContext.insert(entity)
-        }
-
+        let progression = locator.locations.totalProgression ?? engine.totalProgression
+        let entity = HighlightEntity(
+            locatorJSON: data,
+            totalProgression: progression,
+            chapterTitle: chapterTitle(atProgression: progression),
+            excerpt: locator.text?.highlight ?? ""
+        )
+        entity.book = bookEntity ?? fetchBookEntity()
+        modelContext.insert(entity)
         try? modelContext.save()
+
         reloadHighlights()
     }
 
@@ -421,6 +409,13 @@ final class ReaderSession {
                 createdAt: $0.createdAt
             )
         }
+
+        // 交给渲染引擎画到正文上
+        let marks: [HighlightMark] = entities.compactMap { entity in
+            guard let locator = entity.locator else { return nil }
+            return HighlightMark(id: entity.id, locator: locator)
+        }
+        engine.applyHighlights(marks)
     }
 
     // MARK: - 实时刷新
@@ -633,6 +628,8 @@ final class ReaderSession {
             onToggleChrome?()
         case .selectionChanged:
             break
+        case .highlight(let locator):
+            addHighlight(at: locator)
         }
     }
 

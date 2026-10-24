@@ -23,6 +23,14 @@ enum ReaderInteraction: Sendable {
     case tapLeft
     case tapRight
     case selectionChanged
+    /// 用户在弹出的选择菜单里点了「高亮标记」。
+    case highlight(Locator)
+}
+
+/// 一条要交给引擎渲染的高亮。
+struct HighlightMark: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let locator: Locator
 }
 
 /// 渲染引擎。
@@ -109,6 +117,9 @@ protocol RenderEngine: AnyObject {
     /// 指定全书进度落在第几章。
     func chapterIndex(atProgression progression: Double) -> Int?
 
+    /// 渲染已保存的高亮标记。
+    func applyHighlights(_ marks: [HighlightMark])
+
     /// 本书是否内嵌了可选字体。
     var hasBookFont: Bool { get }
 
@@ -131,6 +142,7 @@ extension RenderEngine {
     func pageNumber(forChapter index: Int) -> Int? { nil }
     var liveProgression: Double { totalProgression }
     func chapterIndex(atProgression progression: Double) -> Int? { nil }
+    func applyHighlights(_ marks: [HighlightMark]) {}
 }
 
 /// 一条搜索结果。

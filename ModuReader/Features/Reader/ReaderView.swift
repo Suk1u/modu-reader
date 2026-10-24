@@ -150,8 +150,6 @@ struct ReaderView: View {
             ReaderBottomBar(
                 pageText: pageText(for: session),
                 tint: .primary,
-                isHighlighted: session.isHighlighted,
-                onToggleHighlight: { session.toggleHighlight() },
                 onOpenTOC: { presentPanel(.toc) },
                 onOpenSearch: { presentPanel(.search) },
                 onOpenSettings: { presentPanel(.settings) }

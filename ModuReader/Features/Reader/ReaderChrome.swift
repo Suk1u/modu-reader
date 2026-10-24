@@ -155,8 +155,6 @@ struct ReaderBottomBar: View {
     /// 页码胶囊文字，例如 `18/255页`。
     let pageText: String
     let tint: Color
-    let isHighlighted: Bool
-    let onToggleHighlight: () -> Void
     let onOpenTOC: () -> Void
     let onOpenSearch: () -> Void
     let onOpenSettings: () -> Void
@@ -195,15 +193,6 @@ struct ReaderBottomBar: View {
                         onOpenSearch()
                     } label: {
                         Label("在图书中搜索", systemImage: "magnifyingglass")
-                    }
-
-                    Button {
-                        onToggleHighlight()
-                    } label: {
-                        Label(
-                            isHighlighted ? "取消高亮" : "高亮本页",
-                            systemImage: isHighlighted ? "highlighter" : "highlighter"
-                        )
                     }
 
                     Button {

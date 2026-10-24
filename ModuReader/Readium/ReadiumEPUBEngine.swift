@@ -112,6 +112,8 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private var tocLinks: [ReadiumShared.Link] = []
     /// 每章起始的全书进度，用于按进度反查章节。
     private var chapterStarts: [Double] = []
+    /// 待渲染的高亮。
+    private var highlightMarks: [HighlightMark] = []
     /// 章节定位是否按全书进度走（合并版只有单个资源，只能这样）。
     private var syncByProgression = false
     /// 位置统计的代数号。切换来源或重新打开时递增，
@@ -256,6 +258,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         let navigator = try makeNavigator(publication: publication, initialLocation: initial)
         self.navigator = navigator
         attachNavigator(navigator)
+        renderHighlights()
 
         if !needsPositions {
             let publication = publication
@@ -339,6 +342,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             let navigator = try makeNavigator(publication: newPublication, initialLocation: initial)
             self.navigator = navigator
             attachNavigator(navigator)
+            renderHighlights()
 
             syncChapterIndex()
             onLocatorChange?(currentLocator)
@@ -444,6 +448,13 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             initialLocation: initialLocation,
             config: EPUBNavigatorViewController.Configuration(
                 preferences: makePreferences(settings),
+                // 选中文字后弹出「高亮标记」
+                editingActions: EditingAction.defaultActions + [
+                    EditingAction(
+                        title: "高亮标记",
+                        action: #selector(highlightSelectionAction)
+                    ),
+                ],
                 // 滚动模式下禁用翻页手势。
                 // 纵向滚动时手指常带横向位移，会误触发翻页，产生跳页感。
                 // 该开关只在 scroll 生效（源码里是 `disable && settings.scroll`），
@@ -837,6 +848,75 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         }
     }
 
+    // MARK: - 高亮标记
+
+    private static let highlightGroup = "modu.highlight"
+
+    @objc private func highlightSelectionAction() {
+        guard let selection = navigator?.currentSelection else { return }
+        navigator?.clearSelection()
+        onInteraction?(.highlight(convert(readiumLocator: selection.locator)))
+    }
+
+    func applyHighlights(_ marks: [HighlightMark]) {
+        highlightMarks = marks
+        renderHighlights()
+    }
+
+    private func renderHighlights() {
+        guard let navigator, let publication else { return }
+
+        let tint = UIColor(settings.accent.color)
+        var decorations: [Decoration] = []
+        decorations.reserveCapacity(highlightMarks.count)
+
+        for mark in highlightMarks {
+            // 只画当前渲染源里的书（合并版与原书的 href 不同）
+            guard publication.readingOrder.contains(where: {
+                $0.anyURL.string == mark.locator.href
+            }) else { continue }
+
+            guard let readium = decoratorLocator(for: mark.locator) else { continue }
+            decorations.append(
+                Decoration(
+                    id: mark.id.uuidString,
+                    locator: readium,
+                    style: .highlight(tint: tint)
+                )
+            )
+        }
+
+        navigator.apply(decorations: decorations, in: Self.highlightGroup)
+    }
+
+    private func decoratorLocator(for locator: Locator) -> ReadiumShared.Locator? {
+        guard let publication,
+              let link = publication.readingOrder.first(where: {
+                  $0.anyURL.string == locator.href
+              }) else {
+            return nil
+        }
+
+        let text = locator.text.map {
+            ReadiumShared.Locator.Text(
+                after: $0.after,
+                before: $0.before,
+                highlight: $0.highlight
+            )
+        }
+
+        return ReadiumShared.Locator(
+            href: link.anyURL,
+            mediaType: link.mediaType ?? .xhtml,
+            locations: .init(
+                progression: locator.locations.progression,
+                totalProgression: locator.locations.totalProgression,
+                position: locator.locations.page
+            ),
+            text: text
+        )
+    }
+
     // MARK: - 章节页码
 
     /// 当前章节的页码范围。
@@ -907,7 +987,15 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 totalProgression: readiumLocator.locations.totalProgression,
                 charOffset: nil,
                 page: readiumLocator.locations.position
-            )
+            ),
+            // 文本引用是高亮能重新锚定的关键，必须一起存
+            text: readiumLocator.text.map {
+                TextQuote(
+                    before: $0.before,
+                    highlight: $0.highlight ?? "",
+                    after: $0.after
+                )
+            }
         )
     }
 
