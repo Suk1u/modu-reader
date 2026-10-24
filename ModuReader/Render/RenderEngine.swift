@@ -120,6 +120,9 @@ protocol RenderEngine: AnyObject {
     /// 渲染已保存的高亮标记。
     func applyHighlights(_ marks: [HighlightMark])
 
+    /// 把当前落点滚到屏幕垂直中央。跳转后调用。
+    func centerCurrentPosition()
+
     /// 本书是否内嵌了可选字体。
     var hasBookFont: Bool { get }
 
@@ -143,6 +146,7 @@ extension RenderEngine {
     var liveProgression: Double { totalProgression }
     func chapterIndex(atProgression progression: Double) -> Int? { nil }
     func applyHighlights(_ marks: [HighlightMark]) {}
+    func centerCurrentPosition() {}
 }
 
 /// 一条搜索结果。

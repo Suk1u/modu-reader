@@ -28,6 +28,26 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    ColorPicker(
+                        "高亮颜色",
+                        selection: Binding(
+                            get: { appContainer.globalSettings.highlightRGB.color },
+                            set: { newValue in
+                                guard let hex = newValue.hexString else { return }
+                                appContainer.globalSettings.highlightColorHex = hex
+                            }
+                        ),
+                        supportsOpacity: false
+                    )
+
+                    Toggle(
+                        "高亮使用下划线",
+                        isOn: Binding(
+                            get: { appContainer.globalSettings.usesUnderlineHighlight },
+                            set: { appContainer.globalSettings.highlightUnderline = $0 }
+                        )
+                    )
+
                     Picker("注释显示", selection: Binding(
                         get: { appContainer.globalSettings.noteDisplayMode },
                         set: { appContainer.globalSettings.noteDisplay = $0 }

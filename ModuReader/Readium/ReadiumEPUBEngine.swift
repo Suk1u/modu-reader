@@ -852,6 +852,53 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     // MARK: - 高亮标记
 
     private static let highlightGroup = "modu.highlight"
+    private static let noteHandlerName = "moduNote"
+
+    /// 捕获阶段拦截「注」的点击：阻止跳转，并把注释正文与点击坐标送回。
+    private static let noteScript = #"""
+    (function(){
+      if (window.__moduNoteInstalled) { return; }
+      window.__moduNoteInstalled = true;
+
+      document.addEventListener('click', function(event){
+        var element = event.target;
+        while (element && element !== document.body) {
+          if (element.tagName === 'A') {
+            var type = element.getAttribute('epub:type') || '';
+            if (type.indexOf('noteref') >= 0) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+
+              var href = element.getAttribute('href') || '';
+              var hashIndex = href.indexOf('#');
+              var identifier = hashIndex >= 0 ? href.substring(hashIndex + 1) : '';
+              var text = '';
+              if (identifier) {
+                var target = document.getElementById(identifier);
+                if (!target) {
+                  try { target = document.getElementById(decodeURIComponent(identifier)); } catch (e) {}
+                }
+                if (target) {
+                  text = (target.innerText || target.textContent || '').trim();
+                }
+              }
+              if (window.webkit && window.webkit.messageHandlers.moduNote) {
+                window.webkit.messageHandlers.moduNote.postMessage({
+                  text: text,
+                  referrer: (element.innerText || '').trim(),
+                  x: event.clientX,
+                  y: event.clientY
+                });
+              }
+              return;
+            }
+          }
+          element = element.parentElement;
+        }
+      }, true);
+    })();
+    """#
 
     @objc private func highlightSelectionAction() {
         guard let selection = navigator?.currentSelection else { return }
@@ -867,9 +914,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private func renderHighlights() {
         guard let navigator, let publication else { return }
 
-        // 高亮统一用暖黄底纹，和 Apple Books 一致；
-        // 强调色只用于界面控件，不参与正文着色。
-        let tint = UIColor(red: 0.98, green: 0.78, blue: 0.32, alpha: 1)
+        let tint = UIColor(settings.highlightRGB.color)
+        let style: Decoration.Style = settings.usesUnderlineHighlight
+            ? .underline(tint: tint)
+            : .highlight(tint: tint)
         var decorations: [Decoration] = []
         decorations.reserveCapacity(highlightMarks.count)
 
@@ -884,7 +932,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 Decoration(
                     id: mark.id.uuidString,
                     locator: readium,
-                    style: .highlight(tint: tint)
+                    style: style
                 )
             )
         }
@@ -916,6 +964,28 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 highlight: quote?.highlight
             )
         )
+    }
+
+    /// 把当前落点滚到屏幕中央。
+    func centerCurrentPosition() {
+        Task { [weak self] in
+            try? await Task<Never, Never>.sleep(for: .milliseconds(380))
+            guard let self, self.source == .merged,
+                  let webView = Self.visibleWebView(in: self.view) else { return }
+
+            let scroll = webView.scrollView
+            let insetTop = scroll.adjustedContentInset.top
+            let insetBottom = scroll.adjustedContentInset.bottom
+            let maxY = max(
+                -insetTop,
+                scroll.contentSize.height + insetBottom - scroll.bounds.height
+            )
+            let target = scroll.contentOffset.y - scroll.bounds.height / 2
+            scroll.setContentOffset(
+                CGPoint(x: scroll.contentOffset.x, y: min(max(target, -insetTop), maxY)),
+                animated: true
+            )
+        }
     }
 
     // MARK: - 章节页码
@@ -1063,22 +1133,41 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         Diagnostics.log("ReadiumEPUB: navigator error \(error.localizedDescription)")
     }
 
-    /// 脚注点击。两种模式都不跳转：
-    /// - 内联：注释正文本来就在段落下方，跳过去反而打断阅读
-    /// - 气泡：就地弹出注释内容
+    /// 脚注点击。永远不跳转 —— 注释正文就在段落下方，
+    /// 跳过去反而打断阅读。气泡模式由注入脚本负责弹出。
     func navigator(
         _ navigator: EPUBNavigatorViewController,
         shouldNavigateToNoteAt link: ReadiumShared.Link,
         content: String,
         referrer: String
     ) -> Bool {
-        if settings.noteDisplayMode == .popover {
-            presentNote(content: content, referrer: referrer)
-        }
-        return false
+        false
     }
 
-    private func presentNote(content: String, referrer: String) {
+    /// 注入脚注拦截脚本。
+    ///
+    /// 放在捕获阶段并 stopImmediatePropagation，确保 Readium 自己的
+    /// 链接处理拿不到这次点击，从根上杜绝「点了还是跳走」。
+    func navigator(
+        _ navigator: EPUBNavigatorViewController,
+        setupUserScripts userContentController: WKUserContentController
+    ) {
+        userContentController.add(self, name: Self.noteHandlerName)
+        userContentController.addUserScript(
+            WKUserScript(
+                source: Self.noteScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false
+            )
+        )
+    }
+
+    private func presentNote(
+        content: String,
+        referrer: String,
+        anchor: CGPoint,
+        in webView: WKWebView?
+    ) {
         guard presentedViewController == nil, !content.isEmpty else { return }
 
         let host = UIHostingController(
@@ -1087,16 +1176,22 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         host.modalPresentationStyle = .popover
         host.view.backgroundColor = .clear
 
+        var sourceRect = CGRect(
+            x: view.bounds.midX,
+            y: view.bounds.midY,
+            width: 1,
+            height: 1
+        )
+        if let webView {
+            let point = webView.convert(anchor, to: view)
+            sourceRect = CGRect(x: point.x, y: point.y, width: 1, height: 1)
+        }
+
         if let popover = host.popoverPresentationController {
             popover.delegate = self
             popover.sourceView = view
-            popover.sourceRect = CGRect(
-                x: view.bounds.midX,
-                y: view.bounds.midY,
-                width: 1,
-                height: 1
-            )
-            popover.permittedArrowDirections = []
+            popover.sourceRect = sourceRect
+            popover.permittedArrowDirections = [.up, .down]
             popover.backgroundColor = .clear
         }
 
@@ -1117,6 +1212,35 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         } else {
             onInteraction?(.tapCenter)
         }
+    }
+}
+
+// MARK: - 脚注脚本消息
+
+extension ReadiumEPUBEngine: @preconcurrency WKScriptMessageHandler {
+    func userContentController(
+        _ controller: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == Self.noteHandlerName,
+              let body = message.body as? [String: Any] else { return }
+
+        // 内联模式下脚本已经把点击吃掉了，这里只需不弹气泡
+        guard settings.noteDisplayMode == .popover else { return }
+
+        let text = (body["text"] as? String) ?? ""
+        let referrer = (body["referrer"] as? String) ?? ""
+        let anchor = CGPoint(
+            x: (body["x"] as? Double) ?? Double(view.bounds.midX),
+            y: (body["y"] as? Double) ?? Double(view.bounds.midY)
+        )
+
+        presentNote(
+            content: text,
+            referrer: referrer,
+            anchor: anchor,
+            in: message.webView
+        )
     }
 }
 

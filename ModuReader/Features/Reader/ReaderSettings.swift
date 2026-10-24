@@ -78,6 +78,11 @@ struct ReaderSettings: Codable, Equatable, Sendable {
 
     var themeName: String = ReaderTheme.paper.name
     var followSystemAppearance: Bool = false
+    /// 高亮颜色（`#RRGGBB`）。nil 为默认暖黄。
+    var highlightColorHex: String? = nil
+    /// 高亮是否用下划线代替底色。nil 为底色。
+    var highlightUnderline: Bool? = nil
+
     /// 注释显示方式。nil 表示沿用默认（内联）。
     ///
     /// 存成可选，旧的设置数据缺少这个键时也能解码。
@@ -113,6 +118,12 @@ struct ReaderSettings: Codable, Equatable, Sendable {
     static let defaultAccent = RGBColor(0.0, 0.478, 1.0)
 
     var noteDisplayMode: NoteDisplay { noteDisplay ?? .inline }
+
+    var highlightRGB: RGBColor {
+        highlightColorHex.flatMap { RGBColor(hex: $0) } ?? RGBColor(0.98, 0.78, 0.32)
+    }
+
+    var usesUnderlineHighlight: Bool { highlightUnderline ?? false }
 
     /// 当前强调色：自定义优先，否则用默认强调色。
     var accent: RGBColor {

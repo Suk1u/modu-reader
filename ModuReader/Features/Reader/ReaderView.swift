@@ -54,8 +54,10 @@ struct ReaderView: View {
                     .allowsHitTesting(false)
 
                 if showChrome {
-                    ReaderScrubber(session: session, isActive: showChrome)
-                        .ignoresSafeArea()
+                    if session.settings.readingMode == .scroll {
+                        ReaderScrubber(session: session, isActive: showChrome)
+                            .ignoresSafeArea()
+                    }
 
                     chromeOverlay(session: session)
                 }
@@ -109,7 +111,7 @@ struct ReaderView: View {
         .sheet(isPresented: $showSettings) {
             if let session {
                 ReaderSettingsPanel(session: session, brightness: $brightness)
-                    .presentationDetents([.fraction(0.6), .large])
+                    .presentationDetents([.fraction(0.6)])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(Color(uiColor: .systemBackground))
                     .presentationCornerRadius(38)
@@ -148,6 +150,11 @@ struct ReaderView: View {
 
             Spacer(minLength: 0)
 
+            if session.settings.readingMode == .paged {
+                ReaderHorizontalProgress(session: session)
+                    .padding(.bottom, 2)
+            }
+
             ReaderBottomBar(
                 pageText: pageText(for: session),
                 tint: .primary,
@@ -159,7 +166,9 @@ struct ReaderView: View {
         .transition(.opacity)
     }
 
-    /// 回跳按钮。沉浸阅读时也要显示，只有发生过跳转才出现。
+    /// 回跳菜单。沉浸阅读时也要显示，只有发生过跳转才出现。
+    ///
+    /// 与右下角「更多」同一套写法（ReaderCircleMenu），点击展开撤销 / 重做。
     @ViewBuilder
     private func undoOverlay(session: ReaderSession) -> some View {
         if session.canReturnToJumpOrigin || session.canRedoJump {
@@ -167,21 +176,11 @@ struct ReaderView: View {
                 Spacer(minLength: 0)
 
                 HStack {
-                    ReaderCircleButton(
+                    ReaderCircleMenu(
                         systemName: "arrow.uturn.backward",
                         tint: .primary,
-                        label: "撤销跳转",
-                        action: {
-                            withAnimation(.snappy(duration: 0.2)) {
-                                if session.canReturnToJumpOrigin {
-                                    session.returnToJumpOrigin()
-                                } else {
-                                    session.redoJump()
-                                }
-                            }
-                        }
-                    )
-                    .contextMenu {
+                        label: "跳转记录"
+                    ) {
                         if session.canReturnToJumpOrigin {
                             Button {
                                 session.returnToJumpOrigin()

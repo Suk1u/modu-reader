@@ -209,6 +209,51 @@ struct ReaderBottomBar: View {
     }
 }
 
+// MARK: - 底部横向进度条
+
+/// 翻页模式下贴在底部的横向进度条。
+struct ReaderHorizontalProgress: View {
+
+    @Bindable var session: ReaderSession
+
+    @State private var dragValue: Double?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            let progress = min(max(dragValue ?? session.totalProgression, 0), 1)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.18))
+
+                Capsule()
+                    .fill(Color.primary.opacity(0.55))
+                    .frame(width: max(4, width * progress))
+            }
+            .frame(height: 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .contentShape(.rect)
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { gesture in
+                        dragValue = min(max(gesture.location.x / width, 0), 1)
+                    }
+                    .onEnded { _ in
+                        if let value = dragValue {
+                            session.seekWithHistory(toProgression: value)
+                        }
+                        dragValue = nil
+                    }
+            )
+        }
+        .frame(height: 28)
+        .padding(.horizontal, 24)
+        .accessibilityLabel("阅读进度")
+        .accessibilityValue("\(Int((session.totalProgression * 100).rounded()))%")
+    }
+}
+
 // MARK: - 右侧快速定位条
 
 /// 右侧边缘的纵向快速定位条。
@@ -236,17 +281,17 @@ struct ReaderScrubber: View {
             // 基准尺寸不变，放大交给 scaleEffect ——
             // 轨道与内部进度共用同一个变换，缩放倍率、速率与曲线完全一致。
             let baseHeight = height * normalHeightRatio
-            let scaleX = isDragging ? activeWidth / normalWidth : 1
-            let scaleY = isDragging ? activeHeightRatio / normalHeightRatio : 1
-            let visualWidth = normalWidth * scaleX
-            let visualHeight = baseHeight * scaleY
+            // 等比放大：两个轴用同一个倍率，胶囊形状保持不变
+            let scale = isDragging ? activeHeightRatio / normalHeightRatio : 1
+            let visualWidth = normalWidth * scale
+            let visualHeight = baseHeight * scale
             let visualTop = (height - visualHeight) / 2
             let visualTrailing: CGFloat = isDragging ? 18 : 12
             let progress = dragValue ?? session.totalProgression
             let thumbY = visualTop + visualHeight * progress
 
             // 放大后右缘要从 12pt 挪到 18pt，宽度也在变，换算成中心点位移
-            let activeOffset = (CGFloat(12) - 18) + (normalWidth - activeWidth) / 2
+            let activeOffset = (CGFloat(12) - 18) + (normalWidth - visualWidth) / 2
 
             ZStack(alignment: .trailing) {
                 if isActive || isDragging {
@@ -258,7 +303,7 @@ struct ReaderScrubber: View {
                             .frame(height: baseHeight * progress)
                     }
                     .frame(width: normalWidth, height: baseHeight)
-                    .scaleEffect(x: scaleX, y: scaleY)
+                    .scaleEffect(scale)
                     .padding(.trailing, 12)
                     .offset(x: isDragging ? activeOffset : 0)
                 }

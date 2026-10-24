@@ -29,10 +29,13 @@ struct TOCPanel: View {
     /// 书签与高亮共用的行模型。
     private struct MarkRow: Identifiable {
         let id: UUID
+        /// 主行：书签显示章节名，高亮显示被标记的文字。
         let title: String
         let date: Date
         let progression: Double
         let locator: Locator?
+        /// 高亮跳转后把标记滚到屏幕中央。
+        let centerOnJump: Bool
     }
 
     enum Section: String, CaseIterable, Identifiable {
@@ -150,7 +153,8 @@ struct TOCPanel: View {
                         title: $0.chapterTitle,
                         date: $0.createdAt,
                         progression: $0.progression,
-                        locator: $0.locator
+                        locator: $0.locator,
+                        centerOnJump: false
                     )
                 },
                 emptyTitle: "没有书签",
@@ -164,7 +168,8 @@ struct TOCPanel: View {
                         title: $0.chapterTitle,
                         date: $0.createdAt,
                         progression: $0.progression,
-                        locator: $0.locator
+                        locator: $0.locator,
+                        centerOnJump: false
                     )
                 },
                 emptyTitle: "没有高亮标记",
@@ -315,7 +320,11 @@ struct TOCPanel: View {
             return
         }
 
-        session.goToMark(item.locator, fallbackProgression: item.progression)
+        session.goToMark(
+            item.locator,
+            fallbackProgression: item.progression,
+            center: item.centerOnJump
+        )
         onSelect()
         dismiss()
     }
