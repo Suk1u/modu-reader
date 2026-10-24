@@ -17,6 +17,7 @@
 //  两者在切换阅读方式时互换，位置用全书进度对齐。
 //
 
+import SwiftUI
 import UIKit
 import WebKit
 @preconcurrency import ReadiumShared
