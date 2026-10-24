@@ -1,28 +1,28 @@
 {
-  "total_count": 63,
+  "total_count": 64,
   "workflow_runs": [
     {
-      "id": 40053025152,
+      "id": 40055071138,
       "name": "Build Unsigned IPA",
-      "node_id": "WFR_kwLOVR8bSs8AAAAJU1ipgA",
+      "node_id": "WFR_kwLOVR8bSs8AAAAJU3fhog",
       "head_branch": "main",
-      "head_sha": "8ac2e3cbbec68cddd841538b287882e5867a0ccf",
+      "head_sha": "9b20c180a7a8840fe28b2d982217a543f4fc2553",
       "path": ".github/workflows/build-ipa.yml",
-      "display_title": "feat: 定位气泡加指向滑块的小箭头",
-      "run_number": 63,
+      "display_title": "fix: 应用颜色移入设置并驱动全局 tint，定位条与气泡修正",
+      "run_number": 64,
       "event": "push",
       "status": "in_progress",
       "conclusion": null,
       "workflow_id": 391478422,
-      "check_suite_id": 108565879577,
-      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZRwfbGQ",
-      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152",
-      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40053025152",
+      "check_suite_id": 108571301237,
+      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZR1qVdQ",
+      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40055071138",
+      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40055071138",
       "pull_requests": [
 
       ],
-      "created_at": "2026-10-24T02:10:00Z",
-      "updated_at": "2026-10-24T02:10:06Z",
+      "created_at": "2026-10-24T02:39:20Z",
+      "updated_at": "2026-10-24T02:39:24Z",
       "actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -48,7 +48,7 @@
       "referenced_workflows": [
 
       ],
-      "run_started_at": "2026-10-24T02:10:00Z",
+      "run_started_at": "2026-10-24T02:39:20Z",
       "triggering_actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -70,19 +70,19 @@
         "user_view_type": "public",
         "site_admin": false
       },
-      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/jobs",
-      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/logs",
-      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108565879577",
-      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/artifacts",
-      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/cancel",
-      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/rerun",
+      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40055071138/jobs",
+      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40055071138/logs",
+      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108571301237",
+      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40055071138/artifacts",
+      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40055071138/cancel",
+      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40055071138/rerun",
       "previous_attempt_url": null,
       "workflow_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/workflows/391478422",
       "head_commit": {
-        "id": "8ac2e3cbbec68cddd841538b287882e5867a0ccf",
-        "tree_id": "d313d926f6ecbd7faff5abe77caa02bc49fdeee4",
-        "message": "feat: 定位气泡加指向滑块的小箭头\n\n用自定义 Shape（圆角矩形 union 三角）交给 glassEffect 渲染，\n箭头与气泡是同一块液态玻璃，高光描边沿整体轮廓走，不是叠加的图形。\n\n箭头位置跟随滑块：气泡被挤到屏幕上下边缘时，箭头在气泡内部偏移，\n始终指向滑块所在的高度；未贴边时正对气泡中线。\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
-        "timestamp": "2026-10-24T02:09:54Z",
+        "id": "9b20c180a7a8840fe28b2d982217a543f4fc2553",
+        "tree_id": "6a9a89b8528df8b30a371ae4eab1f6905e6638df",
+        "message": "fix: 应用颜色移入设置并驱动全局 tint，定位条与气泡修正\n\n- 「应用颜色」从阅读设置面板移到应用「设置」页，写入全局设置并持久化\n- 根视图与书架进度改用该强调色，默认值换成系统蓝（原来是主题的灰褐色）\n- 阅读进度条不再吃强调色，恢复 Color.primary：浅色下为黑、深色下为白\n- 定位条轨道与进度合并进同一容器，放大动画不再出现短暂分离\n- 章节气泡去掉 fixedSize，宽度真正随标题长短收缩，长标题尾部截断\n- 页码胶囊补回 .animation(value: pageText)，数字滚动动画恢复\n- 字号刻度点移到「小 | 大」胶囊正下方，与胶囊同宽居中\n- 版本 0.6.2（build 8）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
+        "timestamp": "2026-10-24T02:39:14Z",
         "author": {
           "name": "Suk1u",
           "email": "suk1u@users.noreply.github.com"

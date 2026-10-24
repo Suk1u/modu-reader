@@ -12,6 +12,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - 圆形玻璃按钮
 
@@ -248,32 +249,41 @@ struct ReaderScrubber: View {
         GeometryReader { proxy in
             let height = max(1, proxy.size.height)
             let isDragging = dragValue != nil
-            let trackWidth = isDragging ? activeWidth : normalWidth
-            let trackHeight = height * (isDragging ? activeHeightRatio : normalHeightRatio)
-            let trackTop = (height - trackHeight) / 2
-            let trailing = isDragging ? CGFloat(18) : CGFloat(12)
+
+            // 基准尺寸不变，放大交给 scaleEffect ——
+            // 轨道与内部进度共用同一个变换，缩放倍率、速率与曲线完全一致。
+            let baseHeight = height * normalHeightRatio
+            let scaleX = isDragging ? activeWidth / normalWidth : 1
+            let scaleY = isDragging ? activeHeightRatio / normalHeightRatio : 1
+            let visualWidth = normalWidth * scaleX
+            let visualHeight = baseHeight * scaleY
+            let visualTop = (height - visualHeight) / 2
+            let visualTrailing: CGFloat = isDragging ? 18 : 12
             let progress = dragValue ?? session.totalProgression
-            let thumbY = trackTop + trackHeight * progress
+            let thumbY = visualTop + visualHeight * progress
+
+            // 放大后右缘要从 12pt 挪到 18pt，宽度也在变，换算成中心点位移
+            let activeOffset = (CGFloat(12) - 18) + (normalWidth - activeWidth) / 2
 
             ZStack(alignment: .trailing) {
                 if isActive || isDragging {
-                    // 轨道与进度放在同一个容器里，缩放时一起动画，
-                    // 分开写会各自补间，放大过程中出现短暂错位。
                     ZStack(alignment: .top) {
                         Capsule()
                             .fill(Color.primary.opacity(0.22))
                         Capsule()
                             .fill(Color.primary.opacity(0.55))
-                            .frame(height: max(44, trackHeight * progress))
+                            .frame(height: max(40, baseHeight * progress))
                     }
-                    .frame(width: trackWidth, height: trackHeight)
-                    .padding(.trailing, trailing)
+                    .frame(width: normalWidth, height: baseHeight)
+                    .scaleEffect(x: scaleX, y: scaleY)
+                    .padding(.trailing, 12)
+                    .offset(x: isDragging ? activeOffset : 0)
                 }
 
                 if isDragging {
                     let bubbleCenter = clampedBubbleCenter(thumbY, height: height)
                     callout(for: progress, tailOffset: thumbY - bubbleCenter)
-                        .padding(.trailing, trailing + trackWidth + 2)
+                        .padding(.trailing, visualTrailing + visualWidth + 2)
                         .offset(y: bubbleCenter - height / 2)
                         .allowsHitTesting(false)
                 }
@@ -285,7 +295,7 @@ struct ReaderScrubber: View {
                         .gesture(
                             DragGesture(minimumDistance: 2)
                                 .onChanged { gesture in
-                                    let fraction = (gesture.location.y - trackTop) / trackHeight
+                                    let fraction = (gesture.location.y - visualTop) / visualHeight
                                     dragValue = min(max(fraction, 0), 1)
                                 }
                                 .onEnded { _ in
@@ -325,12 +335,23 @@ struct ReaderScrubber: View {
         .padding(.leading, 18)
         .padding(.trailing, 18 + ScrubberBubbleShape.tailWidth)
         .padding(.vertical, 14)
-        .frame(maxWidth: 267, alignment: .leading)
+        .frame(width: bubbleWidth(for: progress), alignment: .leading)
         .glassEffect(
             .regular,
             in: ScrubberBubbleShape(tailOffsetFromCenter: tailOffset)
         )
     }
+
+    /// 按标题实际渲染宽度算气泡宽度，只有超过上限才截断。
+    private func bubbleWidth(for progress: Double) -> CGFloat {
+        let title = session.chapterTitle(atProgression: progress)
+        let textWidth = (title as NSString).size(withAttributes: [.font: Self.titleFont]).width
+        let chrome = 18 + 18 + ScrubberBubbleShape.tailWidth
+        return min(ceil(textWidth) + chrome, Self.maxBubbleWidth)
+    }
+
+    private static let titleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let maxBubbleWidth: CGFloat = 300
 
     private func pageLabel(for progress: Double) -> String {
         let total = session.totalPageCount
