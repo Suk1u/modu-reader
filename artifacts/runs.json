@@ -1,28 +1,28 @@
 {
-  "total_count": 67,
+  "total_count": 68,
   "workflow_runs": [
     {
-      "id": 40065743116,
+      "id": 40068411154,
       "name": "Build Unsigned IPA",
-      "node_id": "WFR_kwLOVR8bSs8AAAAJVBq5DA",
+      "node_id": "WFR_kwLOVR8bSs8AAAAJVENvEg",
       "head_branch": "main",
-      "head_sha": "bdd2ce4e35b924fc26df5933c89f22d514d714ca",
+      "head_sha": "ad4c124759b2ad01cc571e87f3f730a21ad822bf",
       "path": ".github/workflows/build-ipa.yml",
-      "display_title": "feat: 滚动实时进度、沉浸态回跳、目录选择模式与高亮标记",
-      "run_number": 67,
+      "display_title": "feat: 长按选中文字添加高亮（Readium 装饰）",
+      "run_number": 68,
       "event": "push",
       "status": "in_progress",
       "conclusion": null,
       "workflow_id": 391478422,
-      "check_suite_id": 108599613828,
-      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZSQqZhA",
-      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40065743116",
-      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40065743116",
+      "check_suite_id": 108606553925,
+      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZSXR_RQ",
+      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154",
+      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40068411154",
       "pull_requests": [
 
       ],
-      "created_at": "2026-10-24T05:18:35Z",
-      "updated_at": "2026-10-24T05:18:39Z",
+      "created_at": "2026-10-24T05:59:36Z",
+      "updated_at": "2026-10-24T05:59:40Z",
       "actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -48,7 +48,7 @@
       "referenced_workflows": [
 
       ],
-      "run_started_at": "2026-10-24T05:18:35Z",
+      "run_started_at": "2026-10-24T05:59:36Z",
       "triggering_actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -70,19 +70,19 @@
         "user_view_type": "public",
         "site_admin": false
       },
-      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40065743116/jobs",
-      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40065743116/logs",
-      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108599613828",
-      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40065743116/artifacts",
-      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40065743116/cancel",
-      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40065743116/rerun",
+      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/jobs",
+      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/logs",
+      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108606553925",
+      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/artifacts",
+      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/cancel",
+      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068411154/rerun",
       "previous_attempt_url": null,
       "workflow_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/workflows/391478422",
       "head_commit": {
-        "id": "bdd2ce4e35b924fc26df5933c89f22d514d714ca",
-        "tree_id": "d76854ca65ee5e4ef0bf2b13c99f1df636322324",
-        "message": "feat: 滚动实时进度、沉浸态回跳、目录选择模式与高亮标记\n\n实时性：\n- 引擎新增 liveProgression：合并版按可见 WebView 的滚动比例推算，\n  位置回调只在停稳时可靠，进度条靠它才能连续跟进\n- 页码去抖：滚动中保持上一个确切页码，稳定 350ms 后才换数字；\n  进度条与章节名实时更新\n\n回跳按钮移到独立图层，沉浸阅读（隐藏工具栏）时也显示；\n只有发生过跳转才出现，60 秒无新跳转自动消失\n\n目录：\n- 去掉下滑收起逻辑，分段栏常驻\n- 选择模式改版：左上角变全选、右上角变关闭（均为 50pt 玻璃圆钮）、\n  右下角浮出红色删除按钮\n- 新增高亮标记页签（页级标记），与书签共用选择/删除流程\n\n设置：展开后的背景色与目录统一为系统背景色\n\n高亮：更多菜单新增「高亮本页 / 取消高亮」，新增 HighlightEntity\n版本 0.7.1（build 11）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
-        "timestamp": "2026-10-24T05:18:30Z",
+        "id": "ad4c124759b2ad01cc571e87f3f730a21ad822bf",
+        "tree_id": "af5c7842d577cb3a8dfc69ae6e46c33025f7d260",
+        "message": "feat: 长按选中文字添加高亮（Readium 装饰）\n\n- 导航器编辑菜单加入「高亮标记」项（EditingAction 自定义 selector）\n- 选中后读取 currentSelection.locator 存库，并通过 Decoration\n  以 .highlight(tint:) 画到正文上\n- Locator 转换补齐 text（before/highlight/after），这是高亮能\n  再次锚定到文字范围的关键\n- 新增 RenderEngine.applyHighlights / HighlightMark，会话保存后\n  立即下发渲染；切换渲染源、重新打开时自动重画\n- 移除「高亮本页」的页级入口，高亮统一走选区\n\n版本 0.8.0（build 12）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
+        "timestamp": "2026-10-24T05:59:24Z",
         "author": {
           "name": "Suk1u",
           "email": "suk1u@users.noreply.github.com"

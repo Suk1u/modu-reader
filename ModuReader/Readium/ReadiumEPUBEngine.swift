@@ -897,13 +897,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             return nil
         }
 
-        let text = locator.text.map {
-            ReadiumShared.Locator.Text(
-                after: $0.after,
-                before: $0.before,
-                highlight: $0.highlight
-            )
-        }
+        let quote = locator.text
 
         return ReadiumShared.Locator(
             href: link.anyURL,
@@ -913,7 +907,11 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 totalProgression: locator.locations.totalProgression,
                 position: locator.locations.page
             ),
-            text: text
+            text: ReadiumShared.Locator.Text(
+                after: quote?.after,
+                before: quote?.before,
+                highlight: quote?.highlight
+            )
         )
     }
 
@@ -988,12 +986,13 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 charOffset: nil,
                 page: readiumLocator.locations.position
             ),
-            // 文本引用是高亮能重新锚定的关键，必须一起存
-            text: readiumLocator.text.map {
+            // 文本引用是高亮能重新锚定的关键，必须一起存。
+            // 注意 Readium 的 text 是非可选结构体，空引用时 highlight 为 nil。
+            text: readiumLocator.text.highlight.map { highlight in
                 TextQuote(
-                    before: $0.before,
-                    highlight: $0.highlight ?? "",
-                    after: $0.after
+                    before: readiumLocator.text.before,
+                    highlight: highlight,
+                    after: readiumLocator.text.after
                 )
             }
         )
