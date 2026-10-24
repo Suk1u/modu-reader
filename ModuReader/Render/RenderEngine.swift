@@ -98,6 +98,9 @@ protocol RenderEngine: AnyObject {
     /// 指定全书进度落在哪一章。
     func chapterTitle(atProgression progression: Double) -> String?
 
+    /// 指定章节的起始页码（1 起）。算不出来时返回 nil。
+    func pageNumber(forChapter index: Int) -> Int?
+
     /// 本书是否内嵌了可选字体。
     var hasBookFont: Bool { get }
 
@@ -117,6 +120,7 @@ extension RenderEngine {
     var hasBookFont: Bool { false }
     func chapterPageRange() -> ClosedRange<Int>? { nil }
     func chapterTitle(atProgression progression: Double) -> String? { nil }
+    func pageNumber(forChapter index: Int) -> Int? { nil }
 }
 
 /// 一条搜索结果。

@@ -71,6 +71,7 @@ struct ReaderView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            session?.stop()
             Task { await session?.saveProgress() }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -99,7 +100,7 @@ struct ReaderView: View {
                     showTOC = false
                     showChrome = false
                 }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
         }
@@ -108,7 +109,6 @@ struct ReaderView: View {
                 ReaderSettingsPanel(session: session, brightness: $brightness)
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
-                    .presentationBackground(.ultraThinMaterial)
                     .presentationCornerRadius(38)
             }
         }
@@ -148,9 +148,15 @@ struct ReaderView: View {
                 pageText: pageText(for: session),
                 tint: .primary,
                 canReturn: session.canReturnToJumpOrigin,
+                canRedo: session.canRedoJump,
                 onReturn: {
                     withAnimation(.snappy(duration: 0.2)) {
                         session.returnToJumpOrigin()
+                    }
+                },
+                onRedo: {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        session.redoJump()
                     }
                 },
                 onOpenTOC: { presentPanel(.toc) },

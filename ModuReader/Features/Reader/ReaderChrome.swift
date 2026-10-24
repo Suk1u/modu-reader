@@ -156,7 +156,9 @@ struct ReaderBottomBar: View {
     let pageText: String
     let tint: Color
     let canReturn: Bool
+    let canRedo: Bool
     let onReturn: () -> Void
+    let onRedo: () -> Void
     let onOpenTOC: () -> Void
     let onOpenSearch: () -> Void
     let onOpenSettings: () -> Void
@@ -178,13 +180,31 @@ struct ReaderBottomBar: View {
                 .accessibilityValue(pageText)
 
             HStack(spacing: 12) {
-                if canReturn {
+                if canReturn || canRedo {
                     ReaderCircleButton(
                         systemName: "arrow.uturn.backward",
                         tint: tint,
-                        label: "回到跳转前的位置",
-                        action: onReturn
+                        label: "撤销跳转",
+                        action: {
+                            if canReturn { onReturn() } else { onRedo() }
+                        }
                     )
+                    .contextMenu {
+                        if canReturn {
+                            Button {
+                                onReturn()
+                            } label: {
+                                Label("撤销跳过页面", systemImage: "arrow.uturn.backward")
+                            }
+                        }
+                        if canRedo {
+                            Button {
+                                onRedo()
+                            } label: {
+                                Label("重做跳过页面", systemImage: "arrow.uturn.forward")
+                            }
+                        }
+                    }
                     .transition(.scale.combined(with: .opacity))
                 } else {
                     Color.clear
@@ -272,7 +292,7 @@ struct ReaderScrubber: View {
                             .fill(Color.primary.opacity(0.22))
                         Capsule()
                             .fill(Color.primary.opacity(0.55))
-                            .frame(height: max(40, baseHeight * progress))
+                            .frame(height: baseHeight * progress)
                     }
                     .frame(width: normalWidth, height: baseHeight)
                     .scaleEffect(x: scaleX, y: scaleY)
@@ -385,32 +405,56 @@ struct ScrubberBubbleShape: Shape {
     var cornerRadius: CGFloat = 22
 
     func path(in rect: CGRect) -> Path {
-        let bodyWidth = max(1, rect.width - Self.tailWidth)
+        let height = rect.height
+        let bodyRight = rect.maxX - Self.tailWidth
+        // 圆角不能超过半个宽高，否则窄气泡会画出畸形轮廓
+        let radius = max(0, min(cornerRadius, height / 2, (bodyRight - rect.minX) / 2))
+        let tailHalf = Self.tailHeight / 2
 
-        var body = Path(
-            roundedRect: CGRect(
-                x: rect.minX,
-                y: rect.minY,
-                width: bodyWidth,
-                height: rect.height
-            ),
-            cornerRadius: cornerRadius,
-            style: .continuous
-        )
-
-        // 箭头不能超出圆角区域，否则轮廓会自交
-        let limit = cornerRadius + Self.tailHeight / 2
+        // 箭头中心夹在两侧圆角之间，保证轮廓不自交
         let centerY = min(
-            max(rect.midY + tailOffsetFromCenter, rect.minY + limit),
-            rect.maxY - limit
+            max(rect.midY + tailOffsetFromCenter, rect.minY + radius + tailHalf),
+            rect.maxY - radius - tailHalf
         )
 
-        var tail = Path()
-        tail.move(to: CGPoint(x: rect.minX + bodyWidth, y: centerY - Self.tailHeight / 2))
-        tail.addLine(to: CGPoint(x: rect.maxX, y: centerY))
-        tail.addLine(to: CGPoint(x: rect.minX + bodyWidth, y: centerY + Self.tailHeight / 2))
-        tail.closeSubpath()
-
-        return body.union(tail)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: bodyRight - radius, y: rect.minY))
+        path.addArc(
+            center: CGPoint(x: bodyRight - radius, y: rect.minY + radius),
+            radius: radius,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(0),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: bodyRight, y: centerY - tailHalf))
+        path.addLine(to: CGPoint(x: rect.maxX, y: centerY))
+        path.addLine(to: CGPoint(x: bodyRight, y: centerY + tailHalf))
+        path.addLine(to: CGPoint(x: bodyRight, y: rect.maxY - radius))
+        path.addArc(
+            center: CGPoint(x: bodyRight - radius, y: rect.maxY - radius),
+            radius: radius,
+            startAngle: .degrees(0),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addArc(
+            center: CGPoint(x: rect.minX + radius, y: rect.maxY - radius),
+            radius: radius,
+            startAngle: .degrees(90),
+            endAngle: .degrees(180),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addArc(
+            center: CGPoint(x: rect.minX + radius, y: rect.minY + radius),
+            radius: radius,
+            startAngle: .degrees(180),
+            endAngle: .degrees(270),
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
     }
 }

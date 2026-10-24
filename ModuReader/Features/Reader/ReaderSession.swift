@@ -9,6 +9,14 @@ import Foundation
 import SwiftUI
 import SwiftData
 
+/// 目录面板展示用的一条书签。
+struct BookmarkItem: Identifiable, Hashable {
+    let id: UUID
+    let progression: Double
+    let chapterTitle: String
+    let createdAt: Date
+}
+
 /// 阅读会话。
 ///
 /// 状态所有权：
@@ -74,14 +82,21 @@ final class ReaderSession {
     /// 设置变化时回写全局设置（由 ReaderView 注入）。
     var onSettingsChange: (@MainActor (ReaderSettings) -> Void)?
 
-    /// 是否已给当前位置加书签。
+    /// 本书的全部书签，按阅读进度排序。
+    private(set) var bookmarks: [BookmarkItem] = []
+
+    /// 当前页是否已加书签。
     private(set) var isBookmarked: Bool = false
 
-    /// 跳转前的位置（全书进度）。nil 表示没有可回跳的历史。
-    private(set) var jumpOrigin: Double?
+    /// 跳转来源栈（撤销用）。
+    private(set) var jumpBackStack: [Double] = []
+    /// 被撤销掉的跳转（重做用）。
+    private(set) var jumpForwardStack: [Double] = []
+    /// 跳转按钮的过期时间。超过后自动隐藏。
+    private var jumpExpiry: Date?
 
-    /// 是否有可回跳的位置。
-    var canReturnToJumpOrigin: Bool { jumpOrigin != nil }
+    var canReturnToJumpOrigin: Bool { !jumpBackStack.isEmpty }
+    var canRedoJump: Bool { !jumpForwardStack.isEmpty }
 
     /// 本章还剩多少页。引擎给不出章节页码区间时返回 nil。
     private(set) var chapterRemainingPages: Int?
@@ -90,6 +105,13 @@ final class ReaderSession {
 
     private let modelContext: ModelContext
     private var progressEntity: ProgressEntity?
+    private var bookEntity: BookEntity?
+    private var bookmarkEntities: [BookmarkEntity] = []
+    /// 250ms 心跳：滚动时页码、进度、书签状态都要跟着走，
+    /// 不能只依赖引擎的位置回调（它只在停稳时才报）。
+    private var tickTask: Task<Void, Never>?
+    /// 当前页与书签的判定容差（约一页）。
+    private let bookmarkTolerance: Double = 0.004
     private var lastSavedAt: Date = .distantPast
     /// 进度保存的最小间隔。
     private let saveInterval: TimeInterval = 1.0
@@ -143,8 +165,9 @@ final class ReaderSession {
 
         currentChapterIndex = engine.currentChapterIndex
         totalProgression = engine.totalProgression
-        isBookmarked = progressEntity?.bookmarkJSON != nil
+        reloadBookmarks()
         refreshPageMetrics()
+        startLiveUpdates()
     }
 
     /// 保存进度。离开阅读器、进入后台时调用。
@@ -206,23 +229,40 @@ final class ReaderSession {
 
     // MARK: - 跳转历史
 
+    /// 记录一次跳转前的落点。
+    private func recordJump() {
+        jumpBackStack.append(engine.totalProgression)
+        jumpForwardStack.removeAll()
+        // 跳转按钮只在「刚跳完」有意义，一分钟后自动消失
+        jumpExpiry = Date().addingTimeInterval(60)
+    }
+
     /// 跳转到章节，并记下跳转前的位置。
     func goToChapterWithHistory(_ index: Int) {
-        jumpOrigin = totalProgression
+        recordJump()
         goToChapter(index)
     }
 
     /// 按进度跳转，并记下跳转前的位置。
     func seekWithHistory(toProgression progression: Double) {
-        jumpOrigin = totalProgression
+        recordJump()
         seek(toProgression: progression)
     }
 
-    /// 回到跳转前的位置。再点一次会换回刚才离开的位置。
+    /// 撤销上一次跳转。
     func returnToJumpOrigin() {
-        guard let origin = jumpOrigin else { return }
-        jumpOrigin = totalProgression
+        guard let origin = jumpBackStack.popLast() else { return }
+        jumpForwardStack.append(engine.totalProgression)
+        jumpExpiry = Date().addingTimeInterval(60)
         seek(toProgression: origin)
+    }
+
+    /// 重做被撤销的跳转。
+    func redoJump() {
+        guard let target = jumpForwardStack.popLast() else { return }
+        jumpBackStack.append(engine.totalProgression)
+        jumpExpiry = Date().addingTimeInterval(60)
+        seek(toProgression: target)
     }
 
     /// 指定全书进度所在的章节标题。
@@ -230,21 +270,135 @@ final class ReaderSession {
         engine.chapterTitle(atProgression: progression) ?? currentChapterTitle
     }
 
+    /// 章节起始页码（1 起）。算不出来时返回 nil。
+    func pageNumber(forChapter index: Int) -> Int? {
+        engine.pageNumber(forChapter: index)
+    }
+
+    /// 进度换算成页码（1 起）。
+    func pageNumber(atProgression progression: Double) -> Int {
+        guard totalPageCount > 0 else { return 0 }
+        let page = Int((min(max(progression, 0), 1) * Double(totalPageCount)).rounded())
+        return min(max(page, 1), totalPageCount)
+    }
+
     // MARK: - 书签
 
-    /// 在当前阅读位置添加 / 移除书签。
-    func toggleBookmark() {
-        guard let entity = ensureProgressEntity() else { return }
+    /// 当前页是否已加书签（按容差匹配，跳转后自然落到新页面）。
+    private func syncBookmarkState() {
+        let current = engine.totalProgression
+        let value = bookmarks.contains { abs($0.progression - current) < bookmarkTolerance }
+        if value != isBookmarked {
+            isBookmarked = value
+        }
+    }
 
-        if entity.bookmarkJSON != nil {
-            entity.bookmarkJSON = nil
-            isBookmarked = false
+    /// 在当前页添加 / 移除书签。
+    ///
+    /// 判定以「当前落点」为准：跳转之后再点，书签就落在跳转后的页面。
+    func toggleBookmark() {
+        let current = engine.totalProgression
+
+        if let existing = bookmarkEntities.first(where: {
+            abs($0.totalProgression - current) < bookmarkTolerance
+        }) {
+            modelContext.delete(existing)
         } else {
             guard let data = try? JSONEncoder().encode(engine.currentLocator) else { return }
-            entity.bookmarkJSON = data
-            isBookmarked = true
+            let entity = BookmarkEntity(
+                locatorJSON: data,
+                totalProgression: current,
+                chapterTitle: currentChapterTitle
+            )
+            entity.book = bookEntity ?? fetchBookEntity()
+            modelContext.insert(entity)
+        }
+
+        try? modelContext.save()
+        reloadBookmarks()
+    }
+
+    /// 批量删除书签（目录面板的多选删除）。
+    func deleteBookmarks(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        for entity in bookmarkEntities where ids.contains(entity.id) {
+            modelContext.delete(entity)
         }
         try? modelContext.save()
+        reloadBookmarks()
+    }
+
+    private func reloadBookmarks() {
+        let bookID = book.id
+        let descriptor = FetchDescriptor<BookmarkEntity>(
+            predicate: #Predicate { $0.book?.id == bookID },
+            sortBy: [SortDescriptor(\.totalProgression)]
+        )
+        let entities = (try? modelContext.fetch(descriptor)) ?? []
+        bookmarkEntities = entities
+        bookmarks = entities.map {
+            BookmarkItem(
+                id: $0.id,
+                progression: $0.totalProgression,
+                chapterTitle: $0.chapterTitle,
+                createdAt: $0.createdAt
+            )
+        }
+        syncBookmarkState()
+    }
+
+    // MARK: - 实时刷新
+
+    /// 250ms 心跳。
+    ///
+    /// 引擎的位置回调只在停稳时可靠，滚动过程中的页码、进度条、
+    /// 当前章节都得靠这里主动轮询，否则会出现「停下才更新」。
+    private func startLiveUpdates() {
+        tickTask?.cancel()
+        tickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task<Never, Never>.sleep(for: .milliseconds(250))
+                guard let self, !Task.isCancelled else { return }
+                self.tick()
+            }
+        }
+    }
+
+    /// 停止心跳。视图消失时调用。
+    func stop() {
+        tickTask?.cancel()
+        tickTask = nil
+    }
+
+    private func tick() {
+        let page = engine.currentPageNumber
+        if page != currentPageNumber { currentPageNumber = page }
+
+        let total = engine.totalPageCountValue
+        if total != totalPageCount { totalPageCount = total }
+
+        let progression = engine.totalProgression
+        if abs(progression - totalProgression) > 0.0005 {
+            totalProgression = progression
+        }
+
+        let chapter = engine.currentChapterIndex
+        if chapter != currentChapterIndex { currentChapterIndex = chapter }
+
+        let remaining: Int? = {
+            guard page > 0, let range = engine.chapterPageRange() else { return nil }
+            return max(0, range.upperBound - page)
+        }()
+        if remaining != chapterRemainingPages { chapterRemainingPages = remaining }
+
+        syncBookmarkState()
+
+        // 跳转按钮一分钟后自动消失
+        if let expiry = jumpExpiry, Date() >= expiry {
+            jumpExpiry = nil
+            jumpBackStack.removeAll()
+            jumpForwardStack.removeAll()
+        }
     }
 
     // MARK: - Search
@@ -346,6 +500,14 @@ final class ReaderSession {
         try? modelContext.save()
     }
 
+    private func fetchBookEntity() -> BookEntity? {
+        let bookID = book.id
+        let descriptor = FetchDescriptor<BookEntity>(
+            predicate: #Predicate { $0.id == bookID }
+        )
+        return try? modelContext.fetch(descriptor).first
+    }
+
     /// 取得（必要时创建）本书的进度实体。
     @discardableResult
     private func ensureProgressEntity() -> ProgressEntity? {
@@ -356,6 +518,7 @@ final class ReaderSession {
             predicate: #Predicate { $0.id == bookID }
         )
         guard let bookEntity = try? modelContext.fetch(descriptor).first else { return nil }
+        self.bookEntity = bookEntity
 
         let entity = ProgressEntity(
             locatorJSON: Data(),

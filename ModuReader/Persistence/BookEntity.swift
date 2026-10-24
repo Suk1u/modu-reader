@@ -31,6 +31,9 @@ final class BookEntity {
     @Relationship(deleteRule: .cascade, inverse: \ProgressEntity.book)
     var progress: ProgressEntity?
 
+    @Relationship(deleteRule: .cascade, inverse: \BookmarkEntity.book)
+    var bookmarks: [BookmarkEntity] = []
+
     init(
         id: UUID = UUID(),
         title: String,

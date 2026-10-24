@@ -2,148 +2,350 @@
 //  TOCPanel.swift
 //  ModuReader
 //
-//  目录面板。大目录用 List 懒加载，禁止一次性构建所有行。
+//  目录面板。三段式：章节 / 书签 / 高亮标记。
 //
-//  列表排版保持不变；顶部改为「圆形关闭按钮 + 书名 + 当前页码」，
-//  与阅读器其余面板的头部保持一致。
+//  章节：左标题、右页码，当前章用圆角色块高亮。
+//  书签：可多选删除。
+//  下滑收起分段栏，上滑重新出现。
 //
-//  目录保留原书层级（卷 → 章 → 节）：子项按层级缩进，
-//  带子项的分组节点加粗显示，不用序号占位。
+//  头部不用系统导航栏 —— 自绘才能保证顶栏与列表底色完全一致。
 //
 
 import SwiftUI
+import UIKit
 
 struct TOCPanel: View {
 
     let session: ReaderSession
-    /// 书名，作为面板主标题。
     let bookTitle: String
-    /// 当前页码，作为副标题。
     let pageText: String
     let onSelect: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var searchText = ""
 
-    private var chapters: [Chapter] {
-        session.engine.chapters
+    @State private var tab: Section = .chapters
+    @State private var isSelecting = false
+    @State private var selection = Set<UUID>()
+    @State private var headerCollapsed = false
+
+    enum Section: String, CaseIterable, Identifiable {
+        case chapters = "章节"
+        case bookmarks = "书签"
+        case highlights = "高亮标记"
+
+        var id: String { rawValue }
     }
 
-    private var filteredChapters: [Chapter] {
-        guard !searchText.isEmpty else { return chapters }
-        return chapters.filter { $0.title.localizedStandardContains(searchText) }
-    }
-
-    /// 非分组节点的顺序号。
-    ///
-    /// 分组节点（「第一卷」）不占正文，用它自己的章节序号会跳号，
-    /// 所以只给真正的章节编号。
-    private var displayNumbers: [Int: Int] {
-        var result: [Int: Int] = [:]
-        var counter = 0
-        for chapter in chapters where !chapter.isGroup {
-            counter += 1
-            result[chapter.id] = counter
-        }
-        return result
-    }
+    private var chapters: [Chapter] { session.engine.chapters }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(filteredChapters) { chapter in
+        VStack(spacing: 0) {
+            header
+
+            if !headerCollapsed {
+                segmentedPicker
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            content
+        }
+        .background(Color(uiColor: .systemBackground))
+        .animation(.easeOut(duration: 0.2), value: headerCollapsed)
+    }
+
+    // MARK: - 头部
+
+    private var header: some View {
+        ZStack {
+            VStack(spacing: 1) {
+                Text(bookTitle)
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(1)
+                Text(pageText)
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 60)
+
+            HStack(spacing: 8) {
+                ReaderCircleButton(systemName: "xmark", label: "关闭目录") {
+                    dismiss()
+                }
+
+                Spacer(minLength: 0)
+
+                if tab != .chapters {
+                    trailingActions
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+    }
+
+    @ViewBuilder
+    private var trailingActions: some View {
+        if isSelecting {
+            Button {
+                toggleSelectAll()
+            } label: {
+                Text(selection.count == currentSelectableIDs.count ? "取消全选" : "全选")
+                    .font(.system(size: 15, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("全选")
+
+            Button {
+                deleteSelection()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(selection.isEmpty)
+            .opacity(selection.isEmpty ? 0.35 : 1)
+            .accessibilityLabel("删除所选")
+        } else {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isSelecting = true
+                    selection.removeAll()
+                }
+            } label: {
+                Image(systemName: "checklist")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("选择")
+        }
+    }
+
+    private var segmentedPicker: some View {
+        Picker("目录类型", selection: $tab) {
+            ForEach(Section.allCases) { section in
+                Text(section.rawValue).tag(section)
+            }
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: tab) { _, _ in
+            isSelecting = false
+            selection.removeAll()
+        }
+    }
+
+    // MARK: - 内容
+
+    @ViewBuilder
+    private var content: some View {
+        switch tab {
+        case .chapters:
+            chapterList
+        case .bookmarks:
+            bookmarkList
+        case .highlights:
+            ContentUnavailableView {
+                Label("没有高亮标记", systemImage: "highlighter")
+            } description: {
+                Text("选中正文后可以添加高亮。")
+            }
+        }
+    }
+
+    private var chapterList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(chapters) { chapter in
                     Button {
-                        // 记下跳转前的位置，底栏会出现回跳按钮
                         session.goToChapterWithHistory(chapter.id)
                         onSelect()
                         dismiss()
                     } label: {
-                        row(for: chapter)
-                    }
-                    .accessibilityLabel(chapter.title)
-                    .accessibilityValue(accessibilityValue(for: chapter))
-                }
-            }
-            .listStyle(.plain)
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "搜索章节")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
+                        chapterRow(chapter)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("关闭目录")
-                }
-
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(bookTitle)
-                            .font(.headline)
-                            .lineLimit(1)
-                        Text(pageText)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(chapter.title)
+                    .accessibilityValue(
+                        chapter.id == session.currentChapterIndex ? "当前章节" : ""
+                    )
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
         }
+        .scrollIndicators(.hidden)
+        .trackHeaderCollapse($headerCollapsed)
     }
 
-    private func row(for chapter: Chapter) -> some View {
-        HStack(spacing: 10) {
-            Text(numberText(for: chapter))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
-                .frame(width: 32, alignment: .trailing)
+    private func chapterRow(_ chapter: Chapter) -> some View {
+        let isCurrent = chapter.id == session.currentChapterIndex
 
+        return HStack(spacing: 12) {
             Text(chapter.title)
-                .font(chapter.isGroup ? .subheadline.weight(.semibold) : .subheadline)
-                .foregroundStyle(
-                    chapter.id == session.currentChapterIndex
-                        ? .primary
-                        : (chapter.isGroup ? .primary : .secondary)
-                )
-                .lineLimit(2)
+                .font(.system(size: 16, weight: chapter.isGroup ? .semibold : .regular))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .padding(.leading, CGFloat(chapter.level) * 14)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
 
-            if chapter.id == session.currentChapterIndex {
-                Image(systemName: "bookmark.fill")
-                    .font(.caption2)
-                    .foregroundStyle(ReaderTheme.paper.accentColor)
-                    .accessibilityHidden(true)
+            if let page = session.pageNumber(forChapter: chapter.id) {
+                Text("\(page)")
+                    .font(.system(size: 14).monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
         }
-        // 搜索时结果是扁平的，缩进反而看不懂
-        .padding(.leading, searchText.isEmpty ? CGFloat(chapter.level) * 16 : 0)
-        .padding(.vertical, chapter.isGroup ? 4 : 2)
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+        .background {
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.08))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.leading, 14)
+        }
         .contentShape(.rect)
     }
 
-    private func numberText(for chapter: Chapter) -> String {
-        guard let number = displayNumbers[chapter.id] else { return "" }
-        return "\(number)"
+    private var bookmarkList: some View {
+        Group {
+            if session.bookmarks.isEmpty {
+                ContentUnavailableView {
+                    Label("没有书签", systemImage: "bookmark")
+                } description: {
+                    Text("在阅读页点右上角的书签按钮即可添加。")
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(session.bookmarks) { bookmark in
+                            Button {
+                                handleBookmarkTap(bookmark)
+                            } label: {
+                                bookmarkRow(bookmark)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
+                .scrollIndicators(.hidden)
+                .trackHeaderCollapse($headerCollapsed)
+            }
+        }
     }
 
-    private func accessibilityValue(for chapter: Chapter) -> String {
-        var parts: [String] = []
-        if chapter.isGroup {
-            parts.append("分组")
+    private func bookmarkRow(_ bookmark: BookmarkItem) -> some View {
+        HStack(spacing: 12) {
+            if isSelecting {
+                Image(systemName: selection.contains(bookmark.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(selection.contains(bookmark.id) ? Color.accentColor : .secondary)
+                    .accessibilityHidden(true)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(bookmark.chapterTitle)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(dayText(bookmark.createdAt))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Text("\(session.pageNumber(atProgression: bookmark.progression))")
+                .font(.system(size: 14).monospacedDigit())
+                .foregroundStyle(.secondary)
         }
-        if chapter.level > 0 {
-            parts.append("第 \(chapter.level + 1) 级")
+        .padding(.horizontal, 14)
+        .frame(minHeight: 60)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.leading, 14)
         }
-        if chapter.id == session.currentChapterIndex {
-            parts.append("当前章节")
+        .contentShape(.rect)
+        .accessibilityLabel(bookmark.chapterTitle)
+    }
+
+    private func handleBookmarkTap(_ bookmark: BookmarkItem) {
+        if isSelecting {
+            if selection.contains(bookmark.id) {
+                selection.remove(bookmark.id)
+            } else {
+                selection.insert(bookmark.id)
+            }
+            return
         }
-        return parts.joined(separator: "，")
+
+        session.seekWithHistory(toProgression: bookmark.progression)
+        onSelect()
+        dismiss()
+    }
+
+    // MARK: - 选择
+
+    private var currentSelectableIDs: Set<UUID> {
+        Set(session.bookmarks.map(\.id))
+    }
+
+    private func toggleSelectAll() {
+        if selection.count == currentSelectableIDs.count {
+            selection.removeAll()
+        } else {
+            selection = currentSelectableIDs
+        }
+    }
+
+    private func deleteSelection() {
+        guard !selection.isEmpty else { return }
+        session.deleteBookmarks(selection)
+        withAnimation(.easeOut(duration: 0.18)) {
+            selection.removeAll()
+            if session.bookmarks.isEmpty {
+                isSelecting = false
+            }
+        }
+    }
+
+    private func dayText(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "今天" }
+        if calendar.isDateInYesterday(date) { return "昨天" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+// MARK: - 下滑收起头部
+
+private extension View {
+    /// 向下滚动收起分段栏，向上滚动恢复。
+    func trackHeaderCollapse(_ collapsed: Binding<Bool>) -> some View {
+        onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y
+        } action: { oldValue, newValue in
+            let delta = newValue - oldValue
+            if delta > 4, newValue > 24, !collapsed.wrappedValue {
+                collapsed.wrappedValue = true
+            } else if delta < -4, collapsed.wrappedValue {
+                collapsed.wrappedValue = false
+            }
+        }
     }
 }

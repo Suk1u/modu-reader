@@ -92,6 +92,8 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private var tocLinks: [ReadiumShared.Link] = []
     /// 每章起始的全书进度，用于按进度反查章节。
     private var chapterStarts: [Double] = []
+    /// 章节定位是否按全书进度走（合并版只有单个资源，只能这样）。
+    private var syncByProgression = false
     /// 位置统计的代数号。切换来源或重新打开时递增，
     /// 用来丢弃过期的后台统计结果。
     private var positionsGeneration = 0
@@ -244,6 +246,9 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 guard self.positionsGeneration == generation else { return }
                 self.positions = list
                 self.totalPositions = list.count
+                // 原书的章节页码依赖位置列表，拿到之后重算一次
+                await self.rebuildChapterStarts()
+                self.syncChapterIndex()
             }
         }
 
@@ -626,6 +631,21 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         return []
     }
 
+    /// 重新计算每章的起始进度（需要位置列表已就绪）。
+    private func rebuildChapterStarts() async {
+        guard let publication, !tocLinks.isEmpty else { return }
+
+        var starts: [Double] = []
+        starts.reserveCapacity(tocLinks.count)
+        for link in tocLinks {
+            let located = await publication.locate(link)
+            let raw = located?.locations.totalProgression
+                ?? (Double(starts.count) / Double(max(1, tocLinks.count)))
+            starts.append(max(raw, starts.last ?? 0))
+        }
+        chapterStarts = starts
+    }
+
     /// 按全书进度找最接近的位置。
     private func closestPosition(to progression: Double) -> ReadiumShared.Locator? {
         guard !positions.isEmpty else { return nil }
@@ -655,8 +675,9 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             var starts: [Double] = []
 
             // 合并版只有一个资源，只能靠全书进度区分章节；
-            // 原书按资源定位，用 href 判断当前章即可。
+            // 原书仍按 href 判断当前章，但起始进度两处都要用（页码换算）。
             let useProgression = publication.readingOrder.count == 1
+            syncByProgression = useProgression
 
             for (index, entry) in entries.enumerated() {
                 let title = entry.link.title.flatMap { $0.isEmpty ? nil : $0 }
@@ -676,13 +697,11 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 links.append(entry.link)
                 hrefs.append(normalizedHref(entry.link.href))
 
-                if useProgression {
-                    let located = await publication.locate(entry.link)
-                    let raw = located?.locations.totalProgression
-                        ?? (Double(index) / Double(max(1, entries.count)))
-                    // 位置必须单调不减，否则按进度反查章节会错位
-                    starts.append(max(raw, starts.last ?? 0))
-                }
+                let located = await publication.locate(entry.link)
+                let raw = located?.locations.totalProgression
+                    ?? (Double(index) / Double(max(1, entries.count)))
+                // 位置必须单调不减，否则按进度反查章节会错位
+                starts.append(max(raw, starts.last ?? 0))
             }
 
             chapterStarts = starts
@@ -694,6 +713,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         // 目录不可用：退回按 readingOrder 排列。
         chapterStarts = []
         tocLinks = []
+        syncByProgression = false
         chapterHrefs = publication.readingOrder.map { normalizedHref($0.anyURL.string) }
 
         var globalStart = 0
@@ -749,7 +769,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     /// 合并版的所有章节共用一个 href，无法按 href 区分，
     /// 因此改用「章节起始进度」做二分查找。
     private func syncChapterIndex() {
-        if !chapterStarts.isEmpty {
+        if syncByProgression, !chapterStarts.isEmpty {
             let progression = navigator?.currentLocation?
                 .locations.totalProgression ?? 0
             var index = 0
@@ -795,6 +815,14 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         let lower = min(max(start, 1), totalPositions)
         let upper = min(max(nextStart - 1, lower), totalPositions)
         return lower...upper
+    }
+
+    func pageNumber(forChapter index: Int) -> Int? {
+        guard !chapterStarts.isEmpty,
+              totalPositions > 0,
+              chapterStarts.indices.contains(index) else { return nil }
+        let page = Int((chapterStarts[index] * Double(totalPositions)).rounded(.down)) + 1
+        return min(max(page, 1), totalPositions)
     }
 
     func chapterTitle(atProgression progression: Double) -> String? {

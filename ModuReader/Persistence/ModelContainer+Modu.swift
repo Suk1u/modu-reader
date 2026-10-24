@@ -12,6 +12,7 @@ enum ModuModelContainer {
     static let schema = Schema([
         BookEntity.self,
         ProgressEntity.self,
+        BookmarkEntity.self,
     ])
 
     /// 应用使用的容器。
