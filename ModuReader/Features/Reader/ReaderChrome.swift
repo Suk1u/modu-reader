@@ -269,9 +269,10 @@ struct ReaderScrubber: View {
                 }
 
                 if isDragging {
-                    callout(for: progress)
+                    let bubbleCenter = clampedBubbleCenter(thumbY, height: height)
+                    callout(for: progress, tailOffset: thumbY - bubbleCenter)
                         .padding(.trailing, trailing + trackWidth + 2)
-                        .offset(y: clampedY(thumbY, height: height))
+                        .offset(y: bubbleCenter - height / 2)
                         .allowsHitTesting(false)
                 }
 
@@ -304,7 +305,12 @@ struct ReaderScrubber: View {
         .accessibilityHidden(true)
     }
 
-    private func callout(for progress: Double) -> some View {
+    /// 章节气泡。
+    ///
+    /// 用带指向箭头的自定义 `Shape` 交给 `glassEffect` 渲染 ——
+    /// 箭头也是玻璃材质的一部分，不是叠上去的图形。
+    /// `tailOffset` 让箭头始终对准滑块，气泡被挤到屏幕边缘时箭头会相应偏移。
+    private func callout(for progress: Double, tailOffset: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(session.chapterTitle(atProgression: progress))
                 .font(.system(size: 14, weight: .semibold))
@@ -314,10 +320,14 @@ struct ReaderScrubber: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 18)
+        .padding(.leading, 18)
+        .padding(.trailing, 18 + ScrubberBubbleShape.tailWidth)
         .padding(.vertical, 14)
         .frame(maxWidth: 267, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .glassEffect(
+            .regular,
+            in: ScrubberBubbleShape(tailOffsetFromCenter: tailOffset)
+        )
     }
 
     private func pageLabel(for progress: Double) -> String {
@@ -329,10 +339,55 @@ struct ReaderScrubber: View {
         return "第 \(min(max(page, 1), total)) 页"
     }
 
-    /// 气泡不能贴到屏幕外。
-    private func clampedY(_ y: CGFloat, height: CGFloat) -> CGFloat {
+    /// 气泡中心不能贴到屏幕外。
+    private func clampedBubbleCenter(_ y: CGFloat, height: CGFloat) -> CGFloat {
         let margin: CGFloat = 56
-        let clamped = min(max(y, margin), height - margin)
-        return clamped - height / 2
+        return min(max(y, margin), height - margin)
+    }
+}
+
+// MARK: - 带指向箭头的气泡形状
+
+/// 右侧带一个指向滑块的小三角的气泡。
+///
+/// 三角与圆角矩形成**单个轮廓**（`union`），这样液态玻璃的
+/// 高光描边会沿着整体轮廓走，不会在接缝处出现一条亮线。
+struct ScrubberBubbleShape: Shape {
+
+    static let tailWidth: CGFloat = 9
+    static let tailHeight: CGFloat = 15
+
+    /// 箭头中心相对气泡中心的偏移。0 表示正对中心。
+    var tailOffsetFromCenter: CGFloat = 0
+    var cornerRadius: CGFloat = 22
+
+    func path(in rect: CGRect) -> Path {
+        let bodyWidth = max(1, rect.width - Self.tailWidth)
+
+        var body = Path(
+            roundedRect: CGRect(
+                x: rect.minX,
+                y: rect.minY,
+                width: bodyWidth,
+                height: rect.height
+            ),
+            cornerRadius: cornerRadius,
+            style: .continuous
+        )
+
+        // 箭头不能超出圆角区域，否则轮廓会自交
+        let limit = cornerRadius + Self.tailHeight / 2
+        let centerY = min(
+            max(rect.midY + tailOffsetFromCenter, rect.minY + limit),
+            rect.maxY - limit
+        )
+
+        var tail = Path()
+        tail.move(to: CGPoint(x: rect.minX + bodyWidth, y: centerY - Self.tailHeight / 2))
+        tail.addLine(to: CGPoint(x: rect.maxX, y: centerY))
+        tail.addLine(to: CGPoint(x: rect.minX + bodyWidth, y: centerY + Self.tailHeight / 2))
+        tail.closeSubpath()
+
+        return body.union(tail)
     }
 }
