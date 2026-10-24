@@ -101,6 +101,14 @@ protocol RenderEngine: AnyObject {
     /// 指定章节的起始页码（1 起）。算不出来时返回 nil。
     func pageNumber(forChapter index: Int) -> Int?
 
+    /// 滚动过程中的实时进度。
+    ///
+    /// 位置回调只在停稳时可靠，进度条需要这个值才能跟着手指连续走。
+    var liveProgression: Double { get }
+
+    /// 指定全书进度落在第几章。
+    func chapterIndex(atProgression progression: Double) -> Int?
+
     /// 本书是否内嵌了可选字体。
     var hasBookFont: Bool { get }
 
@@ -121,6 +129,8 @@ extension RenderEngine {
     func chapterPageRange() -> ClosedRange<Int>? { nil }
     func chapterTitle(atProgression progression: Double) -> String? { nil }
     func pageNumber(forChapter index: Int) -> Int? { nil }
+    var liveProgression: Double { totalProgression }
+    func chapterIndex(atProgression progression: Double) -> Int? { nil }
 }
 
 /// 一条搜索结果。

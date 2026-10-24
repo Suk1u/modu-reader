@@ -13,6 +13,7 @@ enum ModuModelContainer {
         BookEntity.self,
         ProgressEntity.self,
         BookmarkEntity.self,
+        HighlightEntity.self,
     ])
 
     /// 应用使用的容器。

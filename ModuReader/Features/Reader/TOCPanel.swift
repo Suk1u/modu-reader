@@ -5,8 +5,7 @@
 //  目录面板。三段式：章节 / 书签 / 高亮标记。
 //
 //  章节：左标题、右页码，当前章用圆角色块高亮。
-//  书签：可多选删除。
-//  下滑收起分段栏，上滑重新出现。
+//  书签 / 高亮：右上角进入选择模式，左上角变全选，右下角出现删除。
 //
 //  头部不用系统导航栏 —— 自绘才能保证顶栏与列表底色完全一致。
 //
@@ -26,7 +25,14 @@ struct TOCPanel: View {
     @State private var tab: Section = .chapters
     @State private var isSelecting = false
     @State private var selection = Set<UUID>()
-    @State private var headerCollapsed = false
+
+    /// 书签与高亮共用的行模型。
+    private struct MarkRow: Identifiable {
+        let id: UUID
+        let title: String
+        let date: Date
+        let progression: Double
+    }
 
     enum Section: String, CaseIterable, Identifiable {
         case chapters = "章节"
@@ -39,20 +45,34 @@ struct TOCPanel: View {
     private var chapters: [Chapter] { session.engine.chapters }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 0) {
+                header
 
-            if !headerCollapsed {
                 segmentedPicker
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+
+                content
             }
 
-            content
+            if isSelecting {
+                ReaderCircleButton(
+                    systemName: "trash",
+                    tint: .red,
+                    label: "删除所选"
+                ) {
+                    deleteSelection()
+                }
+                .opacity(selection.isEmpty ? 0.35 : 1)
+                .disabled(selection.isEmpty)
+                .padding(.trailing, 24)
+                .padding(.bottom, 24)
+                .transition(.scale.combined(with: .opacity))
+            }
         }
         .background(Color(uiColor: .systemBackground))
-        .animation(.easeOut(duration: 0.2), value: headerCollapsed)
+        .animation(.easeOut(duration: 0.18), value: isSelecting)
     }
 
     // MARK: - 头部
@@ -67,64 +87,38 @@ struct TOCPanel: View {
                     .font(.system(size: 12).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 60)
+            .padding(.horizontal, 66)
 
             HStack(spacing: 8) {
-                ReaderCircleButton(systemName: "xmark", label: "关闭目录") {
-                    dismiss()
+                ReaderCircleButton(
+                    systemName: isSelecting ? "checkmark.circle" : "xmark",
+                    label: isSelecting ? "全选" : "关闭目录"
+                ) {
+                    if isSelecting {
+                        toggleSelectAll()
+                    } else {
+                        dismiss()
+                    }
                 }
 
                 Spacer(minLength: 0)
 
                 if tab != .chapters {
-                    trailingActions
+                    ReaderCircleButton(
+                        systemName: isSelecting ? "xmark" : "checklist",
+                        label: isSelecting ? "取消选择" : "选择"
+                    ) {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            isSelecting.toggle()
+                            selection.removeAll()
+                        }
+                    }
                 }
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 12)
         .padding(.bottom, 10)
-    }
-
-    @ViewBuilder
-    private var trailingActions: some View {
-        if isSelecting {
-            Button {
-                toggleSelectAll()
-            } label: {
-                Text(selection.count == currentSelectableIDs.count ? "取消全选" : "全选")
-                    .font(.system(size: 15, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("全选")
-
-            Button {
-                deleteSelection()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(width: 44, height: 44)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .disabled(selection.isEmpty)
-            .opacity(selection.isEmpty ? 0.35 : 1)
-            .accessibilityLabel("删除所选")
-        } else {
-            Button {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    isSelecting = true
-                    selection.removeAll()
-                }
-            } label: {
-                Image(systemName: "checklist")
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(width: 44, height: 44)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("选择")
-        }
     }
 
     private var segmentedPicker: some View {
@@ -148,15 +142,35 @@ struct TOCPanel: View {
         case .chapters:
             chapterList
         case .bookmarks:
-            bookmarkList
+            markList(
+                items: session.bookmarks.map {
+                    MarkRow(
+                        id: $0.id,
+                        title: $0.chapterTitle,
+                        date: $0.createdAt,
+                        progression: $0.progression
+                    )
+                },
+                emptyTitle: "没有书签",
+                emptyMessage: "在阅读页点右上角的书签按钮即可添加。"
+            )
         case .highlights:
-            ContentUnavailableView {
-                Label("没有高亮标记", systemImage: "highlighter")
-            } description: {
-                Text("选中正文后可以添加高亮。")
-            }
+            markList(
+                items: session.highlights.map {
+                    MarkRow(
+                        id: $0.id,
+                        title: $0.chapterTitle,
+                        date: $0.createdAt,
+                        progression: $0.progression
+                    )
+                },
+                emptyTitle: "没有高亮标记",
+                emptyMessage: "在阅读页的「更多」菜单里选择「高亮本页」。"
+            )
         }
     }
+
+    // MARK: - 章节
 
     private var chapterList: some View {
         ScrollView {
@@ -180,7 +194,6 @@ struct TOCPanel: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
-        .trackHeaderCollapse($headerCollapsed)
     }
 
     private func chapterRow(_ chapter: Chapter) -> some View {
@@ -218,22 +231,28 @@ struct TOCPanel: View {
         .contentShape(.rect)
     }
 
-    private var bookmarkList: some View {
+    // MARK: - 书签 / 高亮
+
+    private func markList(
+        items: [MarkRow],
+        emptyTitle: String,
+        emptyMessage: String
+    ) -> some View {
         Group {
-            if session.bookmarks.isEmpty {
+            if items.isEmpty {
                 ContentUnavailableView {
-                    Label("没有书签", systemImage: "bookmark")
+                    Label(emptyTitle, systemImage: tab == .bookmarks ? "bookmark" : "highlighter")
                 } description: {
-                    Text("在阅读页点右上角的书签按钮即可添加。")
+                    Text(emptyMessage)
                 }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(session.bookmarks) { bookmark in
+                        ForEach(items) { item in
                             Button {
-                                handleBookmarkTap(bookmark)
+                                handleMarkTap(id: item.id, progression: item.progression)
                             } label: {
-                                bookmarkRow(bookmark)
+                                markRow(item)
                             }
                             .buttonStyle(.plain)
                         }
@@ -242,33 +261,32 @@ struct TOCPanel: View {
                     .padding(.bottom, 24)
                 }
                 .scrollIndicators(.hidden)
-                .trackHeaderCollapse($headerCollapsed)
             }
         }
     }
 
-    private func bookmarkRow(_ bookmark: BookmarkItem) -> some View {
+    private func markRow(_ item: MarkRow) -> some View {
         HStack(spacing: 12) {
             if isSelecting {
-                Image(systemName: selection.contains(bookmark.id) ? "checkmark.circle.fill" : "circle")
+                Image(systemName: selection.contains(item.id) ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
-                    .foregroundStyle(selection.contains(bookmark.id) ? Color.accentColor : .secondary)
+                    .foregroundStyle(selection.contains(item.id) ? Color.accentColor : .secondary)
                     .accessibilityHidden(true)
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(bookmark.chapterTitle)
+                Text(item.title)
                     .font(.system(size: 16))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(dayText(bookmark.createdAt))
+                Text(dayText(item.date))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
 
-            Text("\(session.pageNumber(atProgression: bookmark.progression))")
+            Text("\(session.pageNumber(atProgression: item.progression))")
                 .font(.system(size: 14).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
@@ -281,20 +299,20 @@ struct TOCPanel: View {
                 .padding(.leading, 14)
         }
         .contentShape(.rect)
-        .accessibilityLabel(bookmark.chapterTitle)
+        .accessibilityLabel(item.title)
     }
 
-    private func handleBookmarkTap(_ bookmark: BookmarkItem) {
+    private func handleMarkTap(id: UUID, progression: Double) {
         if isSelecting {
-            if selection.contains(bookmark.id) {
-                selection.remove(bookmark.id)
+            if selection.contains(id) {
+                selection.remove(id)
             } else {
-                selection.insert(bookmark.id)
+                selection.insert(id)
             }
             return
         }
 
-        session.seekWithHistory(toProgression: bookmark.progression)
+        session.seekWithHistory(toProgression: progression)
         onSelect()
         dismiss()
     }
@@ -302,10 +320,18 @@ struct TOCPanel: View {
     // MARK: - 选择
 
     private var currentSelectableIDs: Set<UUID> {
-        Set(session.bookmarks.map(\.id))
+        switch tab {
+        case .chapters:
+            return []
+        case .bookmarks:
+            return Set(session.bookmarks.map(\.id))
+        case .highlights:
+            return Set(session.highlights.map(\.id))
+        }
     }
 
     private func toggleSelectAll() {
+        guard !currentSelectableIDs.isEmpty else { return }
         if selection.count == currentSelectableIDs.count {
             selection.removeAll()
         } else {
@@ -315,10 +341,19 @@ struct TOCPanel: View {
 
     private func deleteSelection() {
         guard !selection.isEmpty else { return }
-        session.deleteBookmarks(selection)
+
+        switch tab {
+        case .bookmarks:
+            session.deleteBookmarks(selection)
+        case .highlights:
+            session.deleteHighlights(selection)
+        case .chapters:
+            break
+        }
+
         withAnimation(.easeOut(duration: 0.18)) {
             selection.removeAll()
-            if session.bookmarks.isEmpty {
+            if currentSelectableIDs.isEmpty {
                 isSelecting = false
             }
         }
@@ -329,23 +364,5 @@ struct TOCPanel: View {
         if calendar.isDateInToday(date) { return "今天" }
         if calendar.isDateInYesterday(date) { return "昨天" }
         return date.formatted(date: .abbreviated, time: .omitted)
-    }
-}
-
-// MARK: - 下滑收起头部
-
-private extension View {
-    /// 向下滚动收起分段栏，向上滚动恢复。
-    func trackHeaderCollapse(_ collapsed: Binding<Bool>) -> some View {
-        onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentOffset.y
-        } action: { oldValue, newValue in
-            let delta = newValue - oldValue
-            if delta > 4, newValue > 24, !collapsed.wrappedValue {
-                collapsed.wrappedValue = true
-            } else if delta < -4, collapsed.wrappedValue {
-                collapsed.wrappedValue = false
-            }
-        }
     }
 }

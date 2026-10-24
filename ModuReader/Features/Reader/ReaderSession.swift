@@ -9,6 +9,14 @@ import Foundation
 import SwiftUI
 import SwiftData
 
+/// 目录面板展示用的一条高亮标记。
+struct HighlightItem: Identifiable, Hashable {
+    let id: UUID
+    let progression: Double
+    let chapterTitle: String
+    let createdAt: Date
+}
+
 /// 目录面板展示用的一条书签。
 struct BookmarkItem: Identifiable, Hashable {
     let id: UUID
@@ -85,6 +93,9 @@ final class ReaderSession {
     /// 本书的全部书签，按阅读进度排序。
     private(set) var bookmarks: [BookmarkItem] = []
 
+    /// 本书的全部高亮标记，按阅读进度排序。
+    private(set) var highlights: [HighlightItem] = []
+
     /// 当前页是否已加书签。
     private(set) var isBookmarked: Bool = false
 
@@ -107,6 +118,10 @@ final class ReaderSession {
     private var progressEntity: ProgressEntity?
     private var bookEntity: BookEntity?
     private var bookmarkEntities: [BookmarkEntity] = []
+    private var highlightEntities: [HighlightEntity] = []
+    /// 页码去抖：滚动过程中不刷数字，稳定后才提交。
+    private var pendingPage: Int = 0
+    private var pageStableSince = Date()
     /// 250ms 心跳：滚动时页码、进度、书签状态都要跟着走，
     /// 不能只依赖引擎的位置回调（它只在停稳时才报）。
     private var tickTask: Task<Void, Never>?
@@ -166,6 +181,7 @@ final class ReaderSession {
         currentChapterIndex = engine.currentChapterIndex
         totalProgression = engine.totalProgression
         reloadBookmarks()
+        reloadHighlights()
         refreshPageMetrics()
         startLiveUpdates()
     }
@@ -347,6 +363,66 @@ final class ReaderSession {
         syncBookmarkState()
     }
 
+    // MARK: - 高亮标记
+
+    /// 当前页是否已有高亮。
+    var isHighlighted: Bool {
+        let current = engine.totalProgression
+        return highlights.contains { abs($0.progression - current) < bookmarkTolerance }
+    }
+
+    /// 在当前页添加 / 移除高亮标记。
+    func toggleHighlight() {
+        let current = engine.totalProgression
+
+        if let existing = highlightEntities.first(where: {
+            abs($0.totalProgression - current) < bookmarkTolerance
+        }) {
+            modelContext.delete(existing)
+        } else {
+            guard let data = try? JSONEncoder().encode(engine.currentLocator) else { return }
+            let entity = HighlightEntity(
+                locatorJSON: data,
+                totalProgression: current,
+                chapterTitle: currentChapterTitle,
+                excerpt: ""
+            )
+            entity.book = bookEntity ?? fetchBookEntity()
+            modelContext.insert(entity)
+        }
+
+        try? modelContext.save()
+        reloadHighlights()
+    }
+
+    /// 批量删除高亮标记。
+    func deleteHighlights(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        for entity in highlightEntities where ids.contains(entity.id) {
+            modelContext.delete(entity)
+        }
+        try? modelContext.save()
+        reloadHighlights()
+    }
+
+    private func reloadHighlights() {
+        let bookID = book.id
+        let descriptor = FetchDescriptor<HighlightEntity>(
+            predicate: #Predicate { $0.book?.id == bookID },
+            sortBy: [SortDescriptor(\.totalProgression)]
+        )
+        let entities = (try? modelContext.fetch(descriptor)) ?? []
+        highlightEntities = entities
+        highlights = entities.map {
+            HighlightItem(
+                id: $0.id,
+                progression: $0.totalProgression,
+                chapterTitle: $0.chapterTitle,
+                createdAt: $0.createdAt
+            )
+        }
+    }
+
     // MARK: - 实时刷新
 
     /// 250ms 心跳。
@@ -371,23 +447,38 @@ final class ReaderSession {
     }
 
     private func tick() {
-        let page = engine.currentPageNumber
-        if page != currentPageNumber { currentPageNumber = page }
+        // 进度用滚动位置推算，滚动过程中连续跟进
+        let live = engine.liveProgression
+        if abs(live - totalProgression) > 0.0005 {
+            totalProgression = live
+        }
 
         let total = engine.totalPageCountValue
         if total != totalPageCount { totalPageCount = total }
 
-        let progression = engine.totalProgression
-        if abs(progression - totalProgression) > 0.0005 {
-            totalProgression = progression
+        if let chapter = engine.chapterIndex(atProgression: live),
+           chapter != currentChapterIndex {
+            currentChapterIndex = chapter
         }
 
-        let chapter = engine.currentChapterIndex
-        if chapter != currentChapterIndex { currentChapterIndex = chapter }
+        // 页码：滚动中保持上一个确切值，稳定 350ms 后才换成新数字
+        if totalPageCount > 0 {
+            let livePage = min(
+                max(Int((live * Double(totalPageCount)).rounded()), 1),
+                totalPageCount
+            )
+            if livePage != pendingPage {
+                pendingPage = livePage
+                pageStableSince = Date()
+            } else if livePage != currentPageNumber,
+                      Date().timeIntervalSince(pageStableSince) > 0.35 {
+                currentPageNumber = livePage
+            }
+        }
 
         let remaining: Int? = {
-            guard page > 0, let range = engine.chapterPageRange() else { return nil }
-            return max(0, range.upperBound - page)
+            guard currentPageNumber > 0, let range = engine.chapterPageRange() else { return nil }
+            return max(0, range.upperBound - currentPageNumber)
         }()
         if remaining != chapterRemainingPages { chapterRemainingPages = remaining }
 
@@ -400,7 +491,6 @@ final class ReaderSession {
             jumpForwardStack.removeAll()
         }
     }
-
     // MARK: - Search
 
     /// 在全书范围搜索。

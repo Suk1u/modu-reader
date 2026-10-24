@@ -155,17 +155,15 @@ struct ReaderBottomBar: View {
     /// 页码胶囊文字，例如 `18/255页`。
     let pageText: String
     let tint: Color
-    let canReturn: Bool
-    let canRedo: Bool
-    let onReturn: () -> Void
-    let onRedo: () -> Void
+    let isHighlighted: Bool
+    let onToggleHighlight: () -> Void
     let onOpenTOC: () -> Void
     let onOpenSearch: () -> Void
     let onOpenSettings: () -> Void
 
     var body: some View {
-        // 用 ZStack 而不是 Spacer 布局：页码必须相对屏幕居中，
-        // 不能因为左侧回跳按钮时有时无而左右偏移。
+        // 页码相对整条底栏居中；回跳按钮已移到独立图层，
+        // 沉浸阅读时也要能看到。
         ZStack {
             Text(pageText)
                 .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
@@ -180,39 +178,6 @@ struct ReaderBottomBar: View {
                 .accessibilityValue(pageText)
 
             HStack(spacing: 12) {
-                if canReturn || canRedo {
-                    ReaderCircleButton(
-                        systemName: "arrow.uturn.backward",
-                        tint: tint,
-                        label: "撤销跳转",
-                        action: {
-                            if canReturn { onReturn() } else { onRedo() }
-                        }
-                    )
-                    .contextMenu {
-                        if canReturn {
-                            Button {
-                                onReturn()
-                            } label: {
-                                Label("撤销跳过页面", systemImage: "arrow.uturn.backward")
-                            }
-                        }
-                        if canRedo {
-                            Button {
-                                onRedo()
-                            } label: {
-                                Label("重做跳过页面", systemImage: "arrow.uturn.forward")
-                            }
-                        }
-                    }
-                    .transition(.scale.combined(with: .opacity))
-                } else {
-                    Color.clear
-                        .frame(width: 50, height: 50)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-
                 Spacer(minLength: 0)
 
                 ReaderCircleMenu(
@@ -230,6 +195,15 @@ struct ReaderBottomBar: View {
                         onOpenSearch()
                     } label: {
                         Label("在图书中搜索", systemImage: "magnifyingglass")
+                    }
+
+                    Button {
+                        onToggleHighlight()
+                    } label: {
+                        Label(
+                            isHighlighted ? "取消高亮" : "高亮本页",
+                            systemImage: isHighlighted ? "highlighter" : "highlighter"
+                        )
                     }
 
                     Button {

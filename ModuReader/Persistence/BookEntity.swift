@@ -34,6 +34,9 @@ final class BookEntity {
     @Relationship(deleteRule: .cascade, inverse: \BookmarkEntity.book)
     var bookmarks: [BookmarkEntity] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \HighlightEntity.book)
+    var highlights: [HighlightEntity] = []
+
     init(
         id: UUID = UUID(),
         title: String,

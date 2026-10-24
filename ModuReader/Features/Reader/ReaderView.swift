@@ -59,6 +59,8 @@ struct ReaderView: View {
 
                     chromeOverlay(session: session)
                 }
+
+                undoOverlay(session: session)
             } else {
                 ProgressView("正在打开…")
                     .task { await prepare() }
@@ -109,6 +111,7 @@ struct ReaderView: View {
                 ReaderSettingsPanel(session: session, brightness: $brightness)
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
+                    .presentationBackground(Color(uiColor: .systemBackground))
                     .presentationCornerRadius(38)
             }
         }
@@ -147,24 +150,62 @@ struct ReaderView: View {
             ReaderBottomBar(
                 pageText: pageText(for: session),
                 tint: .primary,
-                canReturn: session.canReturnToJumpOrigin,
-                canRedo: session.canRedoJump,
-                onReturn: {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        session.returnToJumpOrigin()
-                    }
-                },
-                onRedo: {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        session.redoJump()
-                    }
-                },
+                isHighlighted: session.isHighlighted,
+                onToggleHighlight: { session.toggleHighlight() },
                 onOpenTOC: { presentPanel(.toc) },
                 onOpenSearch: { presentPanel(.search) },
                 onOpenSettings: { presentPanel(.settings) }
             )
         }
         .transition(.opacity)
+    }
+
+    /// 回跳按钮。沉浸阅读时也要显示，只有发生过跳转才出现。
+    @ViewBuilder
+    private func undoOverlay(session: ReaderSession) -> some View {
+        if session.canReturnToJumpOrigin || session.canRedoJump {
+            VStack {
+                Spacer(minLength: 0)
+
+                HStack {
+                    ReaderCircleButton(
+                        systemName: "arrow.uturn.backward",
+                        tint: .primary,
+                        label: "撤销跳转",
+                        action: {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                if session.canReturnToJumpOrigin {
+                                    session.returnToJumpOrigin()
+                                } else {
+                                    session.redoJump()
+                                }
+                            }
+                        }
+                    )
+                    .contextMenu {
+                        if session.canReturnToJumpOrigin {
+                            Button {
+                                session.returnToJumpOrigin()
+                            } label: {
+                                Label("撤销跳过页面", systemImage: "arrow.uturn.backward")
+                            }
+                        }
+                        if session.canRedoJump {
+                            Button {
+                                session.redoJump()
+                            } label: {
+                                Label("重做跳过页面", systemImage: "arrow.uturn.forward")
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 29)
+                .padding(.bottom, showChrome ? 1 : 20)
+            }
+            .transition(.opacity)
+        }
     }
 
     // MARK: - 面板

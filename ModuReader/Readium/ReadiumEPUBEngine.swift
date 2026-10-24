@@ -48,6 +48,26 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     /// 承载视图（引擎自身）。
     var hostViewController: UIViewController { self }
 
+    /// 滚动中的实时进度。
+    ///
+    /// 合并版只有一个资源，WebView 的滚动比例就是全书进度。
+    /// Readium 的位置回调只在停稳时触发，靠它推不动进度条。
+    var liveProgression: Double {
+        guard source == .merged,
+              let webView = Self.visibleWebView(in: view) else {
+            return totalProgression
+        }
+
+        let scroll = webView.scrollView
+        let insetTop = scroll.adjustedContentInset.top
+        let insetBottom = scroll.adjustedContentInset.bottom
+        let scrollable = scroll.contentSize.height + insetTop + insetBottom - scroll.bounds.height
+        guard scrollable > 1 else { return totalProgression }
+
+        let ratio = (scroll.contentOffset.y + insetTop) / scrollable
+        return min(max(ratio, 0), 1)
+    }
+
     /// 全书总页数。
     var totalPageCountValue: Int { totalPositions }
 
@@ -377,6 +397,30 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 Diagnostics.log("ReadiumEPUB: 宽度探针失败 \(error.localizedDescription)")
             }
         }
+    }
+
+    /// 取当前真正可见的那个 WebView（预加载的兄弟视图不算）。
+    private static func visibleWebView(in root: UIView) -> WKWebView? {
+        var best: WKWebView?
+        var bestArea: CGFloat = 0
+
+        func walk(_ view: UIView) {
+            if let webView = view as? WKWebView, webView.bounds.width > 1 {
+                let frame = webView.convert(webView.bounds, to: root)
+                let intersection = frame.intersection(root.bounds)
+                let area = intersection.isNull ? 0 : intersection.width * intersection.height
+                if area > bestArea {
+                    bestArea = area
+                    best = webView
+                }
+            }
+            for subview in view.subviews {
+                walk(subview)
+            }
+        }
+
+        walk(root)
+        return best
     }
 
     private static func firstWebView(in view: UIView) -> WKWebView? {
@@ -825,7 +869,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         return min(max(page, 1), totalPositions)
     }
 
-    func chapterTitle(atProgression progression: Double) -> String? {
+    func chapterIndex(atProgression progression: Double) -> Int? {
         guard !chapterStarts.isEmpty else { return nil }
         var index = 0
         for (i, start) in chapterStarts.enumerated() where start <= progression + 1e-9 {
@@ -836,7 +880,12 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
               abs(chapterStarts[index + 1] - chapterStarts[index]) < 1e-9 {
             index += 1
         }
-        return chapters.indices.contains(index) ? chapters[index].title : nil
+        return chapters.indices.contains(index) ? index : nil
+    }
+
+    func chapterTitle(atProgression progression: Double) -> String? {
+        guard let index = chapterIndex(atProgression: progression) else { return nil }
+        return chapters[index].title
     }
 
     // MARK: - Locator conversion
