@@ -1,28 +1,28 @@
 {
-  "total_count": 69,
+  "total_count": 70,
   "workflow_runs": [
     {
-      "id": 40068991007,
+      "id": 40071503967,
       "name": "Build Unsigned IPA",
-      "node_id": "WFR_kwLOVR8bSs8AAAAJVExIHw",
+      "node_id": "WFR_kwLOVR8bSs8AAAAJVHKgXw",
       "head_branch": "main",
-      "head_sha": "505e0662d5c34d3e772201cf260a3edbf554e073",
+      "head_sha": "f4fcac0f7d16f5b36a5fc4583003678188bf55b4",
       "path": ".github/workflows/build-ipa.yml",
-      "display_title": "fix: Locator.text 是非可选结构体，修正高亮相关转换",
-      "run_number": 69,
+      "display_title": "fix: 高亮暖黄底纹、标记按 locator 精确跳转、注不可点击",
+      "run_number": 70,
       "event": "push",
       "status": "in_progress",
       "conclusion": null,
       "workflow_id": 391478422,
-      "check_suite_id": 108608098202,
-      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZSYwPmg",
-      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007",
-      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40068991007",
+      "check_suite_id": 108614795095,
+      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZSfI_Vw",
+      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40071503967",
+      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40071503967",
       "pull_requests": [
 
       ],
-      "created_at": "2026-10-24T06:08:07Z",
-      "updated_at": "2026-10-24T06:08:11Z",
+      "created_at": "2026-10-24T06:46:06Z",
+      "updated_at": "2026-10-24T06:46:10Z",
       "actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -48,7 +48,7 @@
       "referenced_workflows": [
 
       ],
-      "run_started_at": "2026-10-24T06:08:07Z",
+      "run_started_at": "2026-10-24T06:46:06Z",
       "triggering_actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -70,19 +70,19 @@
         "user_view_type": "public",
         "site_admin": false
       },
-      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/jobs",
-      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/logs",
-      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108608098202",
-      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/artifacts",
-      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/cancel",
-      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40068991007/rerun",
+      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40071503967/jobs",
+      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40071503967/logs",
+      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108614795095",
+      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40071503967/artifacts",
+      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40071503967/cancel",
+      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40071503967/rerun",
       "previous_attempt_url": null,
       "workflow_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/workflows/391478422",
       "head_commit": {
-        "id": "505e0662d5c34d3e772201cf260a3edbf554e073",
-        "tree_id": "26913198210131b90b8ec164023fca2b29e4b827",
-        "message": "fix: Locator.text 是非可选结构体，修正高亮相关转换\n\n版本 0.8.1（build 13）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
-        "timestamp": "2026-10-24T06:08:03Z",
+        "id": "f4fcac0f7d16f5b36a5fc4583003678188bf55b4",
+        "tree_id": "e99467fc8fd48915ae5d65ffa43483496354ff7d",
+        "message": "fix: 高亮暖黄底纹、标记按 locator 精确跳转、注不可点击\n\n- 高亮装饰改用固定暖黄（0.98,0.78,0.32），不再跟着强调色变蓝\n- 书签 / 高亮条目带上原始 locator，目录跳转走 locator 而非\n  「最近页边界」；readiumLocator 转换补上文本引用，落点才准\n- 合并器新增：去掉 epub:type=\"noteref\" 的 href，脚注「注」不再跳错位置\n  （脚注正文本来就在段落下方），合并版本升到 v6\n- 搜索面板展开后的背景与目录统一为系统背景色\n\n版本 0.9.0（build 14）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
+        "timestamp": "2026-10-24T06:46:00Z",
         "author": {
           "name": "Suk1u",
           "email": "suk1u@users.noreply.github.com"

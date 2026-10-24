@@ -1062,6 +1062,46 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         Diagnostics.log("ReadiumEPUB: navigator error \(error.localizedDescription)")
     }
 
+    /// 脚注点击。两种模式都不跳转：
+    /// - 内联：注释正文本来就在段落下方，跳过去反而打断阅读
+    /// - 气泡：就地弹出注释内容
+    func navigator(
+        _ navigator: EPUBNavigatorViewController,
+        shouldNavigateToNoteAt link: Link,
+        content: String,
+        referrer: String
+    ) -> Bool {
+        if settings.noteDisplayMode == .popover {
+            presentNote(content: content, referrer: referrer)
+        }
+        return false
+    }
+
+    private func presentNote(content: String, referrer: String) {
+        guard presentedViewController == nil, !content.isEmpty else { return }
+
+        let host = UIHostingController(
+            rootView: NoteBubbleView(referrer: referrer, content: content)
+        )
+        host.modalPresentationStyle = .popover
+        host.view.backgroundColor = .clear
+
+        if let popover = host.popoverPresentationController {
+            popover.delegate = self
+            popover.sourceView = view
+            popover.sourceRect = CGRect(
+                x: view.bounds.midX,
+                y: view.bounds.midY,
+                width: 1,
+                height: 1
+            )
+            popover.permittedArrowDirections = []
+            popover.backgroundColor = .clear
+        }
+
+        present(host, animated: true)
+    }
+
     func navigator(_ navigator: VisualNavigator, didTapAt point: CGPoint) {
         // 三分区点击：左侧上一页、右侧下一页、中间呼出工具栏
         let width = view.bounds.width
@@ -1076,6 +1116,16 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         } else {
             onInteraction?(.tapCenter)
         }
+    }
+}
+
+// MARK: - 气泡在 iPhone 上也保持浮动
+
+extension ReadiumEPUBEngine: UIPopoverPresentationControllerDelegate {
+    func adaptivePresentationStyle(
+        for controller: UIPresentationController
+    ) -> UIModalPresentationStyle {
+        .none
     }
 }
 
