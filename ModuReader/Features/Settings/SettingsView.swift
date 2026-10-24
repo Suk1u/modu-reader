@@ -35,6 +35,13 @@ struct SettingsView: View {
                         Text("浅色").tag(ColorScheme?.some(.light))
                         Text("深色").tag(ColorScheme?.some(.dark))
                     }
+
+                    // 应用颜色决定按钮图标、书架进度等系统着色的强调色
+                    ColorPicker(
+                        "应用颜色",
+                        selection: accentBinding,
+                        supportsOpacity: false
+                    )
                 }
 
                 Section("诊断") {
@@ -65,6 +72,16 @@ struct SettingsView: View {
             }
             .navigationTitle("设置")
         }
+    }
+
+    private var accentBinding: Binding<Color> {
+        Binding(
+            get: { appContainer.globalSettings.accent.color },
+            set: { newValue in
+                guard let hex = newValue.hexString else { return }
+                appContainer.globalSettings.accentHex = hex
+            }
+        )
     }
 
     private var appVersion: String {

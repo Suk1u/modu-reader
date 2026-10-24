@@ -152,3 +152,26 @@ struct ReaderTheme: Identifiable, Hashable, Sendable {
         all.first { $0.name == name } ?? .paper
     }
 }
+
+
+// MARK: - Color → hex
+
+extension Color {
+    /// 转成 `#RRGGBB`。取色器回写设置时用。
+    var hexString: String? {
+        let ui = UIColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard ui.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((red * 255).rounded()),
+            Int((green * 255).rounded()),
+            Int((blue * 255).rounded())
+        )
+    }
+}

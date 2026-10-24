@@ -89,9 +89,12 @@ struct ReaderSettings: Codable, Equatable, Sendable {
         ReaderTheme.named(themeName)
     }
 
-    /// 当前强调色：自定义优先，否则跟随主题。
+    /// 默认强调色（系统蓝）。主题自带的棕色只用于主题卡片装饰。
+    static let defaultAccent = RGBColor(0.0, 0.478, 1.0)
+
+    /// 当前强调色：自定义优先，否则用默认强调色。
     var accent: RGBColor {
-        accentHex.flatMap { RGBColor(hex: $0) } ?? theme.accent
+        accentHex.flatMap { RGBColor(hex: $0) } ?? Self.defaultAccent
     }
 
     /// 构建排版指纹。

@@ -69,7 +69,7 @@ struct RootView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        .tint(ReaderTheme.paper.accentColor)
+        .tint(appContainer.globalSettings.accent.color)
         // 回到前台时重新扫描 Inbox。
         //
         // 共享面板打开文件时，App 可能已在后台运行：

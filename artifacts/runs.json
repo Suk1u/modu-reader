@@ -1,28 +1,28 @@
 {
-  "total_count": 62,
+  "total_count": 63,
   "workflow_runs": [
     {
-      "id": 40052096477,
+      "id": 40053025152,
       "name": "Build Unsigned IPA",
-      "node_id": "WFR_kwLOVR8bSs8AAAAJU0p93Q",
+      "node_id": "WFR_kwLOVR8bSs8AAAAJU1ipgA",
       "head_branch": "main",
-      "head_sha": "92dfd7e4aa84005888b14453c72809df0a96e8e0",
+      "head_sha": "8ac2e3cbbec68cddd841538b287882e5867a0ccf",
       "path": ".github/workflows/build-ipa.yml",
-      "display_title": "feat: 实时页码、全书搜索、全局外观记忆与强调色",
-      "run_number": 62,
+      "display_title": "feat: 定位气泡加指向滑块的小箭头",
+      "run_number": 63,
       "event": "push",
       "status": "in_progress",
       "conclusion": null,
       "workflow_id": 391478422,
-      "check_suite_id": 108563358009,
-      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZRuFhOQ",
-      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40052096477",
-      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40052096477",
+      "check_suite_id": 108565879577,
+      "check_suite_node_id": "CS_kwDOVR8bSs8AAAAZRwfbGQ",
+      "url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152",
+      "html_url": "https://github.com/Suk1u/modu-reader/actions/runs/40053025152",
       "pull_requests": [
 
       ],
-      "created_at": "2026-10-24T01:57:17Z",
-      "updated_at": "2026-10-24T01:57:22Z",
+      "created_at": "2026-10-24T02:10:00Z",
+      "updated_at": "2026-10-24T02:10:06Z",
       "actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -48,7 +48,7 @@
       "referenced_workflows": [
 
       ],
-      "run_started_at": "2026-10-24T01:57:17Z",
+      "run_started_at": "2026-10-24T02:10:00Z",
       "triggering_actor": {
         "login": "Suk1u",
         "id": 86770811,
@@ -70,19 +70,19 @@
         "user_view_type": "public",
         "site_admin": false
       },
-      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40052096477/jobs",
-      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40052096477/logs",
-      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108563358009",
-      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40052096477/artifacts",
-      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40052096477/cancel",
-      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40052096477/rerun",
+      "jobs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/jobs",
+      "logs_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/logs",
+      "check_suite_url": "https://api.github.com/repos/Suk1u/modu-reader/check-suites/108565879577",
+      "artifacts_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/artifacts",
+      "cancel_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/cancel",
+      "rerun_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/runs/40053025152/rerun",
       "previous_attempt_url": null,
       "workflow_url": "https://api.github.com/repos/Suk1u/modu-reader/actions/workflows/391478422",
       "head_commit": {
-        "id": "92dfd7e4aa84005888b14453c72809df0a96e8e0",
-        "tree_id": "b69fa0cdda008fd894f6bddd22176d40e8bd42ba",
-        "message": "feat: 实时页码、全书搜索、全局外观记忆与强调色\n\n- 页码改为 ReaderSession 的可观察存储属性并随定位刷新，\n  修复「只有点屏幕才更新」的问题\n- 接入 Readium 的 publication.search，搜索结果带 href + 资源内进度，\n  点击可精确跳转（原来直接返回空数组）\n- ReaderSettings 增加 accentHex（可选，向后兼容），支持自定义强调色\n- AppContainer 把 globalSettings 持久化到 UserDefaults，\n  外观、字号、强调色跨书跨启动记忆；ReaderSession 变化时回写\n- 亮度方向修正：左暗右亮（遮罩改为 1 - brightness）\n- 顶/底栏图标与胶囊改用系统语义色，修复浅色主题下的颜色反转\n- 设置面板：关闭按钮上左内距一致；阅读方式/外观图标跟随当前选中项；\n  按钮改固定尺寸，修复菜单关闭后短暂变大的问题；新增字号刻度点与应用颜色\n- 右侧定位条：弹簧动画更慢更顺、拖动开始/结束有轻触反馈、\n  章节气泡宽度随标题自适应\n- 版本号 0.6.0（build 6）\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
-        "timestamp": "2026-10-24T01:57:11Z",
+        "id": "8ac2e3cbbec68cddd841538b287882e5867a0ccf",
+        "tree_id": "d313d926f6ecbd7faff5abe77caa02bc49fdeee4",
+        "message": "feat: 定位气泡加指向滑块的小箭头\n\n用自定义 Shape（圆角矩形 union 三角）交给 glassEffect 渲染，\n箭头与气泡是同一块液态玻璃，高光描边沿整体轮廓走，不是叠加的图形。\n\n箭头位置跟随滑块：气泡被挤到屏幕上下边缘时，箭头在气泡内部偏移，\n始终指向滑块所在的高度；未贴边时正对气泡中线。\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>",
+        "timestamp": "2026-10-24T02:09:54Z",
         "author": {
           "name": "Suk1u",
           "email": "suk1u@users.noreply.github.com"

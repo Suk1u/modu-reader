@@ -172,6 +172,7 @@ struct ReaderBottomBar: View {
                 .padding(.vertical, 6)
                 .glassEffect(.regular, in: Capsule())
                 .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.28), value: pageText)
                 .accessibilityLabel("页码")
                 .accessibilityValue(pageText)
 
@@ -256,16 +257,17 @@ struct ReaderScrubber: View {
 
             ZStack(alignment: .trailing) {
                 if isActive || isDragging {
-                    Capsule()
-                        .fill(Color.primary.opacity(0.22))
-                        .frame(width: trackWidth, height: trackHeight)
-                        .padding(.trailing, trailing)
-
-                    Capsule()
-                        .fill(session.settings.accent.color.opacity(0.9))
-                        .frame(width: trackWidth, height: max(44, trackHeight * progress))
-                        .frame(height: trackHeight, alignment: .top)
-                        .padding(.trailing, trailing)
+                    // 轨道与进度放在同一个容器里，缩放时一起动画，
+                    // 分开写会各自补间，放大过程中出现短暂错位。
+                    ZStack(alignment: .top) {
+                        Capsule()
+                            .fill(Color.primary.opacity(0.22))
+                        Capsule()
+                            .fill(Color.primary.opacity(0.55))
+                            .frame(height: max(44, trackHeight * progress))
+                    }
+                    .frame(width: trackWidth, height: trackHeight)
+                    .padding(.trailing, trailing)
                 }
 
                 if isDragging {
@@ -315,7 +317,7 @@ struct ReaderScrubber: View {
             Text(session.chapterTitle(atProgression: progress))
                 .font(.system(size: 14, weight: .semibold))
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+                .truncationMode(.tail)
             Text(pageLabel(for: progress))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)

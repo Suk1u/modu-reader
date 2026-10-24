@@ -442,7 +442,7 @@ struct BookCard: View {
             // 进度条始终占位，避免有无进度的卡片高度不一致
             ProgressView(value: progress)
                 .progressViewStyle(.linear)
-                .tint(ReaderTheme.paper.accentColor)
+                .tint(appContainer.globalSettings.accent.color)
                 .opacity(progress > 0.001 ? 1 : 0)
                 .accessibilityLabel("阅读进度")
                 .accessibilityValue("\(Int(progress * 100))%")

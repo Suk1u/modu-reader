@@ -50,10 +50,6 @@ struct ReaderSettingsPanel: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 11)
 
-                fontDots
-                    .padding(.horizontal, 28)
-                    .padding(.top, 8)
-
                 brightnessRow
                     .padding(.horizontal, 28)
                     .padding(.top, 18)
@@ -61,10 +57,6 @@ struct ReaderSettingsPanel: View {
                 themeGrid
                     .padding(.horizontal, 28)
                     .padding(.top, 26)
-
-                accentRow
-                    .padding(.horizontal, 28)
-                    .padding(.top, 14)
 
                 customThemeButton
                     .padding(.horizontal, 28)
@@ -100,9 +92,13 @@ struct ReaderSettingsPanel: View {
     // MARK: - 字号 / 阅读方式 / 外观
 
     private var controlRow: some View {
-        HStack(spacing: 12) {
-            fontSizePill
-                .frame(maxWidth: .infinity)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 8) {
+                fontSizePill
+                fontDots
+            }
+            .frame(maxWidth: .infinity)
+
             iconPills
                 .frame(width: 122)
         }
@@ -323,37 +319,6 @@ struct ReaderSettingsPanel: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    // MARK: - 应用颜色
-
-    private var accentRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "paintpalette")
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 24)
-
-            Text("应用颜色")
-                .font(.system(size: 16))
-
-            Spacer(minLength: 8)
-
-            ColorPicker("应用颜色", selection: accentBinding, supportsOpacity: false)
-                .labelsHidden()
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 52)
-        .glassEffect(.regular, in: Capsule())
-    }
-
-    private var accentBinding: Binding<Color> {
-        Binding(
-            get: { session.settings.accent.color },
-            set: { newValue in
-                guard let hex = newValue.hexString else { return }
-                session.settings.accentHex = hex
-            }
-        )
-    }
-
     // MARK: - 自定义
 
     private var customThemeButton: some View {
@@ -372,26 +337,5 @@ struct ReaderSettingsPanel: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityLabel("自定义主题")
-    }
-}
-
-// MARK: - Color → hex
-
-private extension Color {
-    var hexString: String? {
-        let ui = UIColor(self)
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        guard ui.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-            return nil
-        }
-        return String(
-            format: "#%02X%02X%02X",
-            Int((red * 255).rounded()),
-            Int((green * 255).rounded()),
-            Int((blue * 255).rounded())
-        )
     }
 }
