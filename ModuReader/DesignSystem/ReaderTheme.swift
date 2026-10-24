@@ -19,6 +19,18 @@ struct RGBColor: Hashable, Sendable {
     var blue: Double
     var alpha: Double
 
+    /// 解析 `#RRGGBB` / `RRGGBB`。
+    init?(hex: String) {
+        var value = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("#") { value.removeFirst() }
+        guard value.count == 6, let number = UInt32(value, radix: 16) else { return nil }
+        self.init(
+            Double((number >> 16) & 0xFF) / 255,
+            Double((number >> 8) & 0xFF) / 255,
+            Double(number & 0xFF) / 255
+        )
+    }
+
     init(_ red: Double, _ green: Double, _ blue: Double, alpha: Double = 1) {
         self.red = red
         self.green = green

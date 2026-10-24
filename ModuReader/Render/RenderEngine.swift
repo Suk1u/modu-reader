@@ -130,6 +130,10 @@ struct SearchResult: Identifiable, Hashable, Sendable {
     var context: String
     /// 匹配到的原始文本。
     var matchedText: String
+    /// 结果所在的资源路径。WebKit 引擎用它精确跳转。
+    var href: String?
+    /// 结果在资源内的进度 0...1。
+    var progression: Double?
 
     init(
         id: UUID = UUID(),
@@ -137,7 +141,9 @@ struct SearchResult: Identifiable, Hashable, Sendable {
         chapterTitle: String,
         charOffset: Int,
         context: String,
-        matchedText: String
+        matchedText: String,
+        href: String? = nil,
+        progression: Double? = nil
     ) {
         self.id = id
         self.chapterIndex = chapterIndex
@@ -145,5 +151,7 @@ struct SearchResult: Identifiable, Hashable, Sendable {
         self.charOffset = charOffset
         self.context = context
         self.matchedText = matchedText
+        self.href = href
+        self.progression = progression
     }
 }

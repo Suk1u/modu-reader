@@ -63,6 +63,10 @@ struct ReaderSettings: Codable, Equatable, Sendable {
 
     var themeName: String = ReaderTheme.paper.name
     var followSystemAppearance: Bool = false
+    /// 自定义强调色（`#RRGGBB`）。nil 表示使用主题自带的强调色。
+    ///
+    /// 声明为可选，旧的设置数据缺少这个键时也能解码。
+    var accentHex: String? = nil
 
     // MARK: 阅读模式
 
@@ -83,6 +87,11 @@ struct ReaderSettings: Codable, Equatable, Sendable {
 
     var theme: ReaderTheme {
         ReaderTheme.named(themeName)
+    }
+
+    /// 当前强调色：自定义优先，否则跟随主题。
+    var accent: RGBColor {
+        accentHex.flatMap { RGBColor(hex: $0) } ?? theme.accent
     }
 
     /// 构建排版指纹。

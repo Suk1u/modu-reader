@@ -33,6 +33,8 @@ final class ReaderSession {
             if settings.readingMode != oldValue.readingMode {
                 persistReadingMode(settings.readingMode)
             }
+            // 回写全局设置：外观、字号等需要跨书、跨启动记忆
+            onSettingsChange?(settings)
             Task { await engine.apply(settings: settings) }
         }
     }
@@ -52,10 +54,13 @@ final class ReaderSession {
     var chapterCount: Int { engine.chapters.count }
 
     /// 当前页码（全书维度，1 起）。
-    var currentPageNumber: Int { engine.currentPageNumber }
+    ///
+    /// 必须是存储属性：引擎的页码是计算出来的，SwiftUI 观察不到，
+    /// 只读计算属性会导致「只有点屏幕时才刷新页码」。
+    private(set) var currentPageNumber: Int = 0
 
     /// 全书总页数。
-    var totalPageCount: Int { engine.totalPageCountValue }
+    private(set) var totalPageCount: Int = 0
 
     /// 本书是否内嵌了可用字体。
     var hasBookFont: Bool { engine.hasBookFont }
@@ -65,6 +70,9 @@ final class ReaderSession {
 
     /// 点击中央区域时的回调（由 ReaderView 接管 chrome 显隐）。
     var onToggleChrome: (() -> Void)?
+
+    /// 设置变化时回写全局设置（由 ReaderView 注入）。
+    var onSettingsChange: (@MainActor (ReaderSettings) -> Void)?
 
     /// 是否已给当前位置加书签。
     private(set) var isBookmarked: Bool = false
@@ -76,10 +84,7 @@ final class ReaderSession {
     var canReturnToJumpOrigin: Bool { jumpOrigin != nil }
 
     /// 本章还剩多少页。引擎给不出章节页码区间时返回 nil。
-    var chapterRemainingPages: Int? {
-        guard currentPageNumber > 0, let range = engine.chapterPageRange() else { return nil }
-        return max(0, range.upperBound - currentPageNumber)
-    }
+    private(set) var chapterRemainingPages: Int?
 
     // MARK: - Dependencies
 
@@ -139,6 +144,7 @@ final class ReaderSession {
         currentChapterIndex = engine.currentChapterIndex
         totalProgression = engine.totalProgression
         isBookmarked = progressEntity?.bookmarkJSON != nil
+        refreshPageMetrics()
     }
 
     /// 保存进度。离开阅读器、进入后台时调用。
@@ -251,10 +257,13 @@ final class ReaderSession {
     /// 跳转到一条搜索结果。
     func go(to result: SearchResult) {
         let chapter = engine.chapters[safe: result.chapterIndex]
+        // WebKit 引擎给的是「资源 + 资源内进度」，比字符偏移可靠
+        let href = result.href ?? chapter?.filePath ?? ""
         let locator = Locator(
-            href: chapter?.filePath ?? "",
+            href: href,
             locations: Locations(
-                charOffset: result.charOffset,
+                progression: result.progression,
+                charOffset: result.href == nil ? result.charOffset : nil,
                 page: nil
             ),
             text: TextQuote(highlight: result.matchedText)
@@ -314,6 +323,7 @@ final class ReaderSession {
         if now.timeIntervalSince(lastPublishAt) >= publishInterval {
             lastPublishAt = now
             totalProgression = engine.totalProgression
+            refreshPageMetrics()
         }
 
         persist(locator: locator, progression: engine.totalProgression, force: false)
@@ -376,5 +386,18 @@ final class ReaderSession {
     private func syncChapterState() {
         currentChapterIndex = engine.currentChapterIndex
         totalProgression = engine.totalProgression
+        refreshPageMetrics()
+    }
+
+    /// 把引擎的计算值搬进可观察属性。
+    private func refreshPageMetrics() {
+        totalPageCount = engine.totalPageCountValue
+        currentPageNumber = engine.currentPageNumber
+
+        if currentPageNumber > 0, let range = engine.chapterPageRange() {
+            chapterRemainingPages = max(0, range.upperBound - currentPageNumber)
+        } else {
+            chapterRemainingPages = nil
+        }
     }
 }

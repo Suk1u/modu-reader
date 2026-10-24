@@ -548,9 +548,66 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     func visibleText() -> String? { nil }
 
     func search(_ query: String) async -> [SearchResult] {
-        // EPUB 搜索走 Readium 的 publication.search，需要异步序列处理，
-        // 当前版本先不提供，返回空结果而不是假装搜到了什么。
-        []
+        guard let publication else { return [] }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        switch await publication.search(query: trimmed) {
+        case .failure(let error):
+            Diagnostics.log("ReadiumEPUB: 搜索不可用 — \(error)")
+            return []
+
+        case .success(let iterator):
+            var results: [SearchResult] = []
+            // 上限保护：整本命中几千条时，列表也会卡
+            while !Task.isCancelled, results.count < 200 {
+                switch await iterator.next() {
+                case .failure:
+                    return results
+                case .success(let collection):
+                    guard let collection else { return results }
+                    for locator in collection.locators {
+                        results.append(makeSearchResult(from: locator, fallback: trimmed))
+                    }
+                }
+            }
+            Diagnostics.log("ReadiumEPUB: 搜索「\(trimmed)」命中 \(results.count) 条")
+            return results
+        }
+    }
+
+    private func makeSearchResult(
+        from locator: ReadiumShared.Locator,
+        fallback: String
+    ) -> SearchResult {
+        let index = chapterIndex(for: locator)
+        let title = chapters.indices.contains(index) ? chapters[index].title : ""
+        let highlight = locator.text.highlight?.isEmpty == false
+            ? locator.text.highlight!
+            : fallback
+
+        return SearchResult(
+            chapterIndex: index,
+            chapterTitle: title,
+            charOffset: 0,
+            context: (locator.text.before ?? "") + highlight + (locator.text.after ?? ""),
+            matchedText: highlight,
+            href: locator.href.string,
+            progression: locator.locations.progression
+        )
+    }
+
+    /// 搜索结果落在哪一章。
+    private func chapterIndex(for locator: ReadiumShared.Locator) -> Int {
+        if !chapterStarts.isEmpty, let total = locator.locations.totalProgression {
+            var index = 0
+            for (i, start) in chapterStarts.enumerated() where start <= total + 1e-9 {
+                index = i
+            }
+            return index
+        }
+        let key = normalizedHref(locator.href.string)
+        return chapterHrefs.firstIndex(of: key) ?? 0
     }
 
     // MARK: - Positions

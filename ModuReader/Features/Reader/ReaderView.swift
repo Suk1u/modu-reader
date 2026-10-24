@@ -33,8 +33,8 @@ struct ReaderView: View {
     @State private var showSearch = false
     /// 书签操作的临时提示，1.5 秒后回到常规状态文案。
     @State private var statusOverride: String?
-    /// 阅读区亮度 0...1，通过遮罩压暗画布。
-    @State private var brightness: Double = 0
+    /// 阅读区亮度 0...1。1 为原始亮度，0 为最暗。
+    @State private var brightness: Double = 1
     @State private var errorMessage: String?
 
     var body: some View {
@@ -46,9 +46,10 @@ struct ReaderView: View {
                 ReaderCanvas(engine: session.engine.hostViewController)
                     .ignoresSafeArea()
 
-                // 亮度遮罩：只压暗画布，不参与任何交互
+                // 亮度遮罩：只压暗画布，不参与任何交互。
+                // 亮度越高遮罩越淡，滑块左暗右亮。
                 Color.black
-                    .opacity(brightness * 0.55)
+                    .opacity((1 - brightness) * 0.6)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
@@ -130,7 +131,7 @@ struct ReaderView: View {
         VStack(spacing: 8) {
             ReaderTopBar(
                 statusText: statusText(for: session),
-                tint: session.theme.textColor,
+                tint: .primary,
                 isBookmarked: session.isBookmarked,
                 onClose: {
                     Task {
@@ -145,7 +146,7 @@ struct ReaderView: View {
 
             ReaderBottomBar(
                 pageText: pageText(for: session),
-                tint: session.theme.textColor,
+                tint: .primary,
                 canReturn: session.canReturnToJumpOrigin,
                 onReturn: {
                     withAnimation(.snappy(duration: 0.2)) {
@@ -239,6 +240,11 @@ struct ReaderView: View {
             settings: settings,
             modelContext: modelContext
         )
+
+        // 设置变化回写全局，保证外观/强调色跨书、跨启动记忆
+        session.onSettingsChange = { [appContainer] newSettings in
+            appContainer.globalSettings = newSettings
+        }
 
         session.onToggleChrome = {
             withAnimation(.easeOut(duration: 0.18)) {

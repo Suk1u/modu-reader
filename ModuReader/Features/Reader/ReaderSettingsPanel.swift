@@ -6,13 +6,14 @@
 //
 //  尺寸取自 iOS 26 Apple Books 实测规范：
 //  标题 18pt Bold、控制胶囊高 44pt、亮度轨道无外框、
-//  主题卡片 100×86（圆角 18）、底部按钮高 47pt。
+//  主题卡片 86pt 高（圆角 18）、底部按钮高 47pt。
 //
 //  阅读方式与外观用原生 `Menu`：系统自带 Liquid Glass 菜单、勾选状态、
-//  无障碍语义与键盘导航，不需要自己搭弹出层。
+//  无障碍语义与键盘导航；按钮图标跟随当前选中项变化。
 //
 
 import SwiftUI
+import UIKit
 
 /// 外观选择。`system` 表示跟随设备明暗。
 enum AppearanceChoice: Hashable {
@@ -31,20 +32,44 @@ struct ReaderSettingsPanel: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var showCustomTheme = false
+    /// 调整字号后短暂显示刻度点。
+    @State private var showFontDots = false
+    @State private var dotHideTask: Task<Void, Never>?
 
     private static let minFontSize: Double = 12
     private static let maxFontSize: Double = 32
+    private static let fontSteps = Int(maxFontSize - minFontSize)
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                controlRow.padding(.top, 11)
-                brightnessRow.padding(.top, 22)
-                themeGrid.padding(.top, 30)
-                customThemeButton.padding(.top, 15)
+                    .padding(.horizontal, 12)
+
+                controlRow
+                    .padding(.horizontal, 28)
+                    .padding(.top, 11)
+
+                fontDots
+                    .padding(.horizontal, 28)
+                    .padding(.top, 8)
+
+                brightnessRow
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
+
+                themeGrid
+                    .padding(.horizontal, 28)
+                    .padding(.top, 26)
+
+                accentRow
+                    .padding(.horizontal, 28)
+                    .padding(.top, 14)
+
+                customThemeButton
+                    .padding(.horizontal, 28)
+                    .padding(.top, 14)
             }
-            .padding(.horizontal, 28)
             .padding(.top, 12)
             .padding(.bottom, 42)
         }
@@ -86,7 +111,7 @@ struct ReaderSettingsPanel: View {
     private var fontSizePill: some View {
         HStack(spacing: 0) {
             Button {
-                session.settings.fontSize = max(Self.minFontSize, session.settings.fontSize - 1)
+                adjustFont(by: -1)
             } label: {
                 Text("小")
                     .font(.system(size: 15))
@@ -103,7 +128,7 @@ struct ReaderSettingsPanel: View {
                 .accessibilityHidden(true)
 
             Button {
-                session.settings.fontSize = min(Self.maxFontSize, session.settings.fontSize + 1)
+                adjustFont(by: 1)
             } label: {
                 Text("大")
                     .font(.system(size: 20))
@@ -120,17 +145,55 @@ struct ReaderSettingsPanel: View {
         .accessibilityValue("\(Int(session.settings.fontSize)) 点")
     }
 
+    /// 字号刻度点。点「小 / 大」时短暂出现，用来显示当前档位。
+    private var fontDots: some View {
+        let step = Int((session.settings.fontSize - Self.minFontSize).rounded())
+
+        return HStack(spacing: 3) {
+            ForEach(0...Self.fontSteps, id: \.self) { index in
+                Capsule()
+                    .fill(
+                        index <= step
+                            ? session.settings.accent.color
+                            : Color.primary.opacity(0.15)
+                    )
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(height: 6)
+        .opacity(showFontDots ? 1 : 0)
+        .animation(.easeOut(duration: 0.18), value: showFontDots)
+        .accessibilityHidden(true)
+    }
+
+    private func adjustFont(by delta: Double) {
+        let next = min(
+            max(session.settings.fontSize + delta, Self.minFontSize),
+            Self.maxFontSize
+        )
+        session.settings.fontSize = next
+
+        showFontDots = true
+        dotHideTask?.cancel()
+        dotHideTask = Task {
+            try? await Task<Never, Never>.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            showFontDots = false
+        }
+    }
+
     private var iconPills: some View {
         HStack(spacing: 0) {
             Menu {
                 Picker("阅读方式", selection: $session.settings.readingMode) {
-                    Label("翻页", systemImage: "book").tag(ReadingMode.paged)
+                    Label("翻页", systemImage: "book.pages").tag(ReadingMode.paged)
                     Label("滚动", systemImage: "scroll").tag(ReadingMode.scroll)
                 }
             } label: {
-                Image(systemName: "book.pages")
+                Image(systemName: readingModeIcon)
                     .font(.system(size: 17, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(width: 61, height: 44)
                     .contentShape(.rect)
             }
             .accessibilityLabel("翻页方式")
@@ -142,14 +205,23 @@ struct ReaderSettingsPanel: View {
                     Label("匹配设备", systemImage: "circle.lefthalf.filled").tag(AppearanceChoice.system)
                 }
             } label: {
-                Image(systemName: "circle.righthalf.filled")
+                Image(systemName: appearanceIcon)
                     .font(.system(size: 17, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(width: 61, height: 44)
                     .contentShape(.rect)
             }
             .accessibilityLabel("外观")
         }
         .glassEffect(.regular.interactive(), in: Capsule())
+    }
+
+    private var readingModeIcon: String {
+        session.settings.readingMode == .scroll ? "scroll" : "book.pages"
+    }
+
+    private var appearanceIcon: String {
+        if session.settings.followSystemAppearance { return "circle.lefthalf.filled" }
+        return session.settings.theme.isDark ? "moon" : "sun.max"
     }
 
     /// 外观菜单的选中状态由「是否跟随系统 + 当前主题明暗」推导。
@@ -251,6 +323,37 @@ struct ReaderSettingsPanel: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
+    // MARK: - 应用颜色
+
+    private var accentRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "paintpalette")
+                .font(.system(size: 17, weight: .medium))
+                .frame(width: 24)
+
+            Text("应用颜色")
+                .font(.system(size: 16))
+
+            Spacer(minLength: 8)
+
+            ColorPicker("应用颜色", selection: accentBinding, supportsOpacity: false)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .glassEffect(.regular, in: Capsule())
+    }
+
+    private var accentBinding: Binding<Color> {
+        Binding(
+            get: { session.settings.accent.color },
+            set: { newValue in
+                guard let hex = newValue.hexString else { return }
+                session.settings.accentHex = hex
+            }
+        )
+    }
+
     // MARK: - 自定义
 
     private var customThemeButton: some View {
@@ -269,5 +372,26 @@ struct ReaderSettingsPanel: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityLabel("自定义主题")
+    }
+}
+
+// MARK: - Color → hex
+
+private extension Color {
+    var hexString: String? {
+        let ui = UIColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard ui.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((red * 255).rounded()),
+            Int((green * 255).rounded()),
+            Int((blue * 255).rounded())
+        )
     }
 }

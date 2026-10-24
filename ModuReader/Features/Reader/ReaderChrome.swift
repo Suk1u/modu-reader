@@ -262,7 +262,7 @@ struct ReaderScrubber: View {
                         .padding(.trailing, trailing)
 
                     Capsule()
-                        .fill(Color.primary.opacity(0.55))
+                        .fill(session.settings.accent.color.opacity(0.9))
                         .frame(width: trackWidth, height: max(44, trackHeight * progress))
                         .frame(height: trackHeight, alignment: .top)
                         .padding(.trailing, trailing)
@@ -295,8 +295,12 @@ struct ReaderScrubber: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-            .animation(.snappy(duration: 0.22), value: isDragging)
+            .animation(
+                .spring(response: 0.5, dampingFraction: 0.78, blendDuration: 0.15),
+                value: isDragging
+            )
         }
+        .sensoryFeedback(.impact(weight: .light), trigger: dragValue == nil)
         .accessibilityHidden(true)
     }
 
@@ -305,6 +309,7 @@ struct ReaderScrubber: View {
             Text(session.chapterTitle(atProgression: progress))
                 .font(.system(size: 14, weight: .semibold))
                 .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             Text(pageLabel(for: progress))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)

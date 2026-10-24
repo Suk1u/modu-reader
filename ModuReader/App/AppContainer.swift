@@ -32,8 +32,30 @@ final class AppContainer {
     /// 模型容器。
     let modelContainer: ModelContainer
 
-    /// 全局阅读设置（跨书共享排版，主题与进度按书存）。
-    var globalSettings: ReaderSettings = ReaderSettings()
+    /// 全局阅读设置（跨书共享排版、外观与强调色）。
+    ///
+    /// 变化即写入 UserDefaults：外观等选择必须跨书、跨启动记忆。
+    var globalSettings: ReaderSettings {
+        didSet {
+            guard globalSettings != oldValue else { return }
+            Self.saveSettings(globalSettings)
+        }
+    }
+
+    private static let settingsKey = "modu.reader.settings.v1"
+
+    private static func saveSettings(_ settings: ReaderSettings) {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        UserDefaults.standard.set(data, forKey: settingsKey)
+    }
+
+    private static func loadSettings() -> ReaderSettings {
+        guard let data = UserDefaults.standard.data(forKey: settingsKey),
+              let decoded = try? JSONDecoder().decode(ReaderSettings.self, from: data) else {
+            return ReaderSettings()
+        }
+        return decoded
+    }
 
     /// 分页缓存。为 nil 时每次都重新分页（功能不受影响，只是变慢）。
     let pageCache: PageIndexCache?
@@ -52,6 +74,7 @@ final class AppContainer {
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
+        self.globalSettings = Self.loadSettings()
         do {
             self.fileStore = try FileStore()
         } catch {
