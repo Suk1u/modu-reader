@@ -43,9 +43,13 @@ struct CustomThemePanel: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    GlassIconButton(title: "关闭", systemImage: "xmark") {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
                     }
+                    .accessibilityLabel("关闭")
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {

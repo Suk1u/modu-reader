@@ -31,7 +31,6 @@ struct ReaderView: View {
     @State private var showTOC = false
     @State private var showSettings = false
     @State private var showSearch = false
-    @State private var showQuickMenu = false
     /// 书签操作的临时提示，1.5 秒后回到常规状态文案。
     @State private var statusOverride: String?
     /// 阅读区亮度 0...1，通过遮罩压暗画布。
@@ -56,18 +55,6 @@ struct ReaderView: View {
                 if showChrome {
                     ReaderScrubber(session: session, isActive: showChrome)
                         .ignoresSafeArea()
-
-                    if showQuickMenu {
-                        // 点空白处收起菜单
-                        Color.clear
-                            .contentShape(.rect)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation(.snappy(duration: 0.18)) {
-                                    showQuickMenu = false
-                                }
-                            }
-                    }
 
                     chromeOverlay(session: session)
                 }
@@ -143,6 +130,7 @@ struct ReaderView: View {
         VStack(spacing: 8) {
             ReaderTopBar(
                 statusText: statusText(for: session),
+                tint: session.theme.textColor,
                 isBookmarked: session.isBookmarked,
                 onClose: {
                     Task {
@@ -155,35 +143,18 @@ struct ReaderView: View {
 
             Spacer(minLength: 0)
 
-            if showQuickMenu {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    ReaderQuickMenu(
-                        onOpenTOC: { presentPanel(.toc) },
-                        onOpenSearch: { presentPanel(.search) },
-                        onOpenSettings: { presentPanel(.settings) }
-                    )
-                }
-                .padding(.horizontal, 16)
-                .transition(
-                    .scale(scale: 0.9, anchor: .bottomTrailing)
-                        .combined(with: .opacity)
-                )
-            }
-
             ReaderBottomBar(
                 pageText: pageText(for: session),
+                tint: session.theme.textColor,
                 canReturn: session.canReturnToJumpOrigin,
                 onReturn: {
                     withAnimation(.snappy(duration: 0.2)) {
                         session.returnToJumpOrigin()
                     }
                 },
-                onOpenMenu: {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        showQuickMenu.toggle()
-                    }
-                }
+                onOpenTOC: { presentPanel(.toc) },
+                onOpenSearch: { presentPanel(.search) },
+                onOpenSettings: { presentPanel(.settings) }
             )
         }
         .transition(.opacity)
@@ -198,9 +169,6 @@ struct ReaderView: View {
     }
 
     private func presentPanel(_ panel: Panel) {
-        withAnimation(.snappy(duration: 0.18)) {
-            showQuickMenu = false
-        }
         switch panel {
         case .toc: showTOC = true
         case .search: showSearch = true
@@ -275,9 +243,6 @@ struct ReaderView: View {
         session.onToggleChrome = {
             withAnimation(.easeOut(duration: 0.18)) {
                 showChrome.toggle()
-                if !showChrome {
-                    showQuickMenu = false
-                }
             }
         }
 

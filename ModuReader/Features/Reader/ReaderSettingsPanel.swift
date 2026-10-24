@@ -60,7 +60,7 @@ struct ReaderSettingsPanel: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            GlassIconButton(title: "关闭设置", systemImage: "xmark") {
+            ReaderCircleButton(systemName: "xmark", label: "关闭设置") {
                 dismiss()
             }
 

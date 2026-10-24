@@ -2,40 +2,100 @@
 //  ReaderChrome.swift
 //  ModuReader
 //
-//  阅读器功能层：顶部悬浮栏、底部悬浮栏、快捷菜单与右侧快速定位条。
+//  阅读器功能层：顶部悬浮栏、底部悬浮栏与右侧快速定位条。
 //
 //  Liquid Glass 只出现在这里。正文画布不加任何玻璃效果。
 //
-//  尺寸取自 iOS 26 Apple Books 实测规范：
-//  - 圆形按钮 44×44（玻璃圆 44pt，图标 16pt）
-//  - 状态胶囊高 28pt、字号 12pt；页码胶囊高 29pt、字号 12.5pt
-//  - 顶栏距顶 0（贴着安全区），底栏距底 1pt
-//  - 快速定位条常态 7.5×33%，拖拽态 18×46%
+//  圆形按钮统一使用 `ReaderCircleButton`：50pt 玻璃圆、29pt 呼吸区、
+//  按下轻微凹陷、轻触反馈。底部「更多」用原生 `Menu`，
+//  label 保持裸 Image，由系统负责菜单材质与无障碍。
 //
 
 import SwiftUI
 
-// MARK: - 玻璃圆形按钮
+// MARK: - 圆形玻璃按钮
 
-/// 44pt 玻璃圆形图标按钮。功能层的最小触控热区。
-struct GlassIconButton: View {
-
-    let title: String
-    let systemImage: String
+struct ReaderCircleButton: View {
+    let systemName: String
     var tint: Color = .primary
+    var disabled: Bool = false
+    var label: String? = nil
     let action: () -> Void
 
+    // MARK: 设计常量
+    private let size: CGFloat = 50
+    private let iconSize: CGFloat = 29
+    private let radius: CGFloat = 25
+
+    @State private var tapCount = 0
+
     var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .medium))
+        Button {
+            guard !disabled else { return }
+            tapCount += 1
+            withAnimation(.easeOut(duration: 0.18)) { action() }
+        } label: {
+            Image(systemName: systemName)
+                .font(.title2)
                 .foregroundStyle(tint)
-                .frame(width: 44, height: 44)
-                .glassEffect(.regular.interactive(), in: Circle())
-                .contentShape(Circle())
+                .frame(width: iconSize, height: iconSize)
+                .frame(width: size, height: size)
+                .contentShape(.circle)
+                .glassEffect(
+                    .regular.interactive(),
+                    in: .rect(cornerRadius: radius, style: .continuous)
+                )
+                .glassEffectTransition(.materialize)
+                .opacity(disabled ? 0.38 : 1)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
+        .buttonStyle(ReaderCircleButtonStyle())
+        .disabled(disabled)
+        .sensoryFeedback(.impact(weight: .light), trigger: tapCount)
+        .accessibilityLabel(label ?? systemName)
+    }
+}
+
+/// 按下轻微凹陷；0.94 与 50pt 体量匹配。
+struct ReaderCircleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// 与 `ReaderCircleButton` 同款外观的菜单按钮。
+///
+/// label 保持裸 Image —— 玻璃、按压与命中区都在 label 上完成，
+/// 菜单内容交给系统渲染。
+struct ReaderCircleMenu<Content: View>: View {
+
+    let systemName: String
+    var tint: Color = .primary
+    var label: String? = nil
+    @ViewBuilder var content: () -> Content
+
+    private let size: CGFloat = 50
+    private let iconSize: CGFloat = 29
+    private let radius: CGFloat = 25
+
+    var body: some View {
+        Menu {
+            content()
+        } label: {
+            Image(systemName: systemName)
+                .font(.title2)
+                .foregroundStyle(tint)
+                .frame(width: iconSize, height: iconSize)
+                .frame(width: size, height: size)
+                .contentShape(.circle)
+                .glassEffect(
+                    .regular.interactive(),
+                    in: .rect(cornerRadius: radius, style: .continuous)
+                )
+                .glassEffectTransition(.materialize)
+        }
+        .accessibilityLabel(label ?? systemName)
     }
 }
 
@@ -45,15 +105,18 @@ struct ReaderTopBar: View {
 
     /// 中间胶囊的文字。
     let statusText: String
+    /// 按钮图标颜色，跟随阅读主题。
+    let tint: Color
     let isBookmarked: Bool
     let onClose: () -> Void
     let onToggleBookmark: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            GlassIconButton(
-                title: "关闭阅读器",
-                systemImage: "xmark",
+            ReaderCircleButton(
+                systemName: "xmark",
+                tint: tint,
+                label: "关闭阅读器",
                 action: onClose
             )
 
@@ -72,10 +135,10 @@ struct ReaderTopBar: View {
 
             Spacer(minLength: 0)
 
-            GlassIconButton(
-                title: isBookmarked ? "移除书签" : "添加书签",
-                systemImage: isBookmarked ? "bookmark.fill" : "bookmark",
-                tint: isBookmarked ? .red : .primary,
+            ReaderCircleButton(
+                systemName: isBookmarked ? "bookmark.fill" : "bookmark",
+                tint: isBookmarked ? .red : tint,
+                label: isBookmarked ? "移除书签" : "添加书签",
                 action: onToggleBookmark
             )
         }
@@ -90,23 +153,17 @@ struct ReaderBottomBar: View {
 
     /// 页码胶囊文字，例如 `18/255页`。
     let pageText: String
+    let tint: Color
     let canReturn: Bool
     let onReturn: () -> Void
-    let onOpenMenu: () -> Void
+    let onOpenTOC: () -> Void
+    let onOpenSearch: () -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            if canReturn {
-                GlassIconButton(
-                    title: "回到跳转前的位置",
-                    systemImage: "arrow.uturn.backward",
-                    action: onReturn
-                )
-                .transition(.scale.combined(with: .opacity))
-            }
-
-            Spacer(minLength: 0)
-
+        // 用 ZStack 而不是 Spacer 布局：页码必须相对屏幕居中，
+        // 不能因为左侧回跳按钮时有时无而左右偏移。
+        ZStack {
             Text(pageText)
                 .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.primary)
@@ -118,71 +175,52 @@ struct ReaderBottomBar: View {
                 .accessibilityLabel("页码")
                 .accessibilityValue(pageText)
 
-            Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                if canReturn {
+                    ReaderCircleButton(
+                        systemName: "arrow.uturn.backward",
+                        tint: tint,
+                        label: "回到跳转前的位置",
+                        action: onReturn
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                } else {
+                    Color.clear
+                        .frame(width: 50, height: 50)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
 
-            GlassIconButton(
-                title: "更多",
-                systemImage: "ellipsis",
-                action: onOpenMenu
-            )
+                Spacer(minLength: 0)
+
+                ReaderCircleMenu(
+                    systemName: "ellipsis",
+                    tint: tint,
+                    label: "更多"
+                ) {
+                    Button {
+                        onOpenTOC()
+                    } label: {
+                        Label("目录", systemImage: "list.bullet.rectangle")
+                    }
+
+                    Button {
+                        onOpenSearch()
+                    } label: {
+                        Label("在图书中搜索", systemImage: "magnifyingglass")
+                    }
+
+                    Button {
+                        onOpenSettings()
+                    } label: {
+                        Label("主题与设置", systemImage: "textformat.size")
+                    }
+                }
+            }
         }
         .padding(.leading, 29)
         .padding(.trailing, 30)
         .padding(.bottom, 1)
-    }
-}
-
-// MARK: - 快捷菜单
-
-/// 底栏「更多」上方弹出的玻璃菜单。
-struct ReaderQuickMenu: View {
-
-    let onOpenTOC: () -> Void
-    let onOpenSearch: () -> Void
-    let onOpenSettings: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            row("目录", systemImage: "list.bullet.rectangle", action: onOpenTOC)
-            divider
-            row("在图书中搜索", systemImage: "magnifyingglass", action: onOpenSearch)
-            divider
-            row("主题与设置", systemImage: "textformat.size", action: onOpenSettings)
-        }
-        .padding(.vertical, 4)
-        .frame(width: 250)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(height: 0.5)
-            .padding(.leading, 20)
-            .accessibilityHidden(true)
-    }
-
-    private func row(
-        _ title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 19, weight: .regular))
-                    .frame(width: 28, alignment: .center)
-                Text(title)
-                    .font(.system(size: 16))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 20)
-            .frame(height: 48.5)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
     }
 }
 
