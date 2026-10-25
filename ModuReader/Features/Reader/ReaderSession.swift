@@ -107,6 +107,11 @@ final class ReaderSession {
     /// 当前页是否已加书签。
     private(set) var isBookmarked: Bool = false
 
+    /// 刚选中、等待选择颜色的高亮。
+    private(set) var pendingHighlight: Locator?
+    /// 选区位置，用来给配色浮条定位。
+    private(set) var pendingHighlightRect: CGRect?
+
     /// 跳转来源栈（撤销用）。
     private(set) var jumpBackStack: [Double] = []
     /// 被撤销掉的跳转（重做用）。
@@ -431,18 +436,29 @@ final class ReaderSession {
 
     // MARK: - 高亮标记
 
-    /// 选中文字后点了系统菜单里的「高亮」。
-    ///
-    /// 不再弹出自定义配色浮条：样式直接取设置里的高亮颜色与下划线
-    /// 开关，点一下就落库 —— 和 Apple Books 的「高亮」一致。
-    private func addHighlight(at locator: Locator) {
-        guard let data = try? JSONEncoder().encode(locator) else {
-            Diagnostics.log("高亮: 编码失败")
+    /// 选中文字后先挂起，等用户在浮条上选完颜色 / 下划线再落库。
+    private func addHighlight(at locator: Locator, rect: CGRect?) {
+        pendingHighlight = locator
+        pendingHighlightRect = rect
+    }
+
+    /// 放弃这次高亮，并撤掉正文里的选区。
+    func cancelPendingHighlight() {
+        pendingHighlight = nil
+        pendingHighlightRect = nil
+        engine.clearSelection()
+    }
+
+    /// 用选定样式保存挂起的高亮。
+    func commitHighlight(tintHex: String?, underline: Bool) {
+        guard let locator = pendingHighlight,
+              let data = try? JSONEncoder().encode(locator) else {
+            Diagnostics.log("高亮: 提交失败 — 没有挂起的选区")
             return
         }
+        pendingHighlight = nil
+        pendingHighlightRect = nil
 
-        let tintHex = settings.highlightRGB.hexString
-        let underline = settings.usesUnderlineHighlight
         let progression = locator.locations.totalProgression ?? engine.totalProgression
         let excerpt = locator.text?.highlight ?? ""
         let entity = HighlightEntity(
@@ -458,8 +474,10 @@ final class ReaderSession {
         try? modelContext.save()
 
         Diagnostics.log(
-            "高亮: 已保存「\(String(excerpt.prefix(18)))」颜色 \(tintHex) 下划线 \(underline)"
+            "高亮: 已保存「\(String(excerpt.prefix(18)))」颜色 \(tintHex ?? "默认") 下划线 \(underline)"
         )
+        // 落库后再撤掉选区，正文里留下的就是刚选好的高亮本身
+        engine.clearSelection()
         reloadHighlights()
     }
 
@@ -735,11 +753,16 @@ final class ReaderSession {
         case .tapRight:
             nextPage()
         case .tapCenter:
-            onToggleChrome?()
+            // 配色浮条挂着时，点正文是「放弃这次高亮」，不要顺带切换工具栏。
+            if pendingHighlight != nil {
+                cancelPendingHighlight()
+            } else {
+                onToggleChrome?()
+            }
         case .selectionChanged:
             break
-        case .highlight(let locator):
-            addHighlight(at: locator)
+        case .highlight(let locator, let rect):
+            addHighlight(at: locator, rect: rect)
         }
     }
 

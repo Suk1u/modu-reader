@@ -456,10 +456,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             initialLocation: initialLocation,
             config: EPUBNavigatorViewController.Configuration(
                 preferences: makePreferences(settings),
-                // 选中文字后弹出系统编辑菜单，其中一项是「高亮」
+                // 选中文字后弹出系统编辑菜单，其中一项是「高亮标记」
                 editingActions: EditingAction.defaultActions + [
                     EditingAction(
-                        title: "高亮",
+                        title: "高亮标记",
                         action: #selector(highlightSelectionAction)
                     ),
                 ],
@@ -892,10 +892,14 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     private func beginHighlight(with selection: Selection) {
-        // 系统菜单点按即完成高亮：取走选区、清除选中，样式用设置里的
-        // 高亮颜色与下划线开关 —— 和 Apple Books 的「高亮」一致。
+        // 选区保留到选好颜色为止 —— 浮条出现时读者要能看见正在标记哪一段。
+        // 清除由 ReaderSession 在落库之后统一做。
+        onInteraction?(.highlight(convert(readiumLocator: selection.locator), selection.frame))
+    }
+
+    /// 清除正文里的文字选中。
+    func clearSelection() {
         navigator?.clearSelection()
-        onInteraction?(.highlight(convert(readiumLocator: selection.locator)))
     }
 
     func applyHighlights(_ marks: [HighlightMark]) {
