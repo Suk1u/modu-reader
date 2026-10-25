@@ -111,6 +111,8 @@ final class ReaderSession {
     private(set) var pendingHighlight: Locator?
     /// 选区位置，用来给配色浮条定位。
     private(set) var pendingHighlightRect: CGRect?
+    /// 已经自动落库、等待浮条替换样式的那条标记。
+    private var pendingHighlightID: UUID?
 
     /// 跳转来源栈（撤销用）。
     private(set) var jumpBackStack: [Double] = []
@@ -436,29 +438,19 @@ final class ReaderSession {
 
     // MARK: - 高亮标记
 
-    /// 选中文字后先挂起，等用户在浮条上选完颜色 / 下划线再落库。
+    /// 点「高亮标记」后**立即**用上一次的样式落一条高亮。
+    ///
+    /// 浮条只负责替换样式：滑动、点正文或收起浮条都不会丢掉这次标记。
+    /// 没有「上一次」时用默认暖黄（palette 的第一个颜色）。
     private func addHighlight(at locator: Locator, rect: CGRect?) {
-        pendingHighlight = locator
-        pendingHighlightRect = rect
-    }
-
-    /// 放弃这次高亮，并撤掉正文里的选区。
-    func cancelPendingHighlight() {
-        pendingHighlight = nil
-        pendingHighlightRect = nil
-        engine.clearSelection()
-    }
-
-    /// 用选定样式保存挂起的高亮。
-    func commitHighlight(tintHex: String?, underline: Bool) {
-        guard let locator = pendingHighlight,
-              let data = try? JSONEncoder().encode(locator) else {
-            Diagnostics.log("高亮: 提交失败 — 没有挂起的选区")
+        guard let data = try? JSONEncoder().encode(locator) else {
+            Diagnostics.log("高亮: 编码失败")
             return
         }
-        pendingHighlight = nil
-        pendingHighlightRect = nil
 
+        // 上一次的样式；从没标记过就用浮条上的第一个黄色
+        let tintHex = settings.highlightColorHex ?? HighlightPalette.palette[0].hex
+        let underline = settings.usesUnderlineHighlight
         let progression = locator.locations.totalProgression ?? engine.totalProgression
         let excerpt = locator.text?.highlight ?? ""
         let entity = HighlightEntity(
@@ -473,10 +465,59 @@ final class ReaderSession {
         modelContext.insert(entity)
         try? modelContext.save()
 
+        pendingHighlight = locator
+        pendingHighlightRect = rect
+        pendingHighlightID = entity.id
+
         Diagnostics.log(
-            "高亮: 已保存「\(String(excerpt.prefix(18)))」颜色 \(tintHex ?? "默认") 下划线 \(underline)"
+            "高亮: 自动标记「\(String(excerpt.prefix(18)))」颜色 \(tintHex) 下划线 \(underline)"
         )
-        // 落库后再撤掉选区，正文里留下的就是刚选好的高亮本身
+        reloadHighlights()
+    }
+
+    /// 收起浮条，但保留已经落下的高亮。
+    func cancelPendingHighlight() {
+        pendingHighlight = nil
+        pendingHighlightRect = nil
+        pendingHighlightID = nil
+        engine.clearSelection()
+    }
+
+    /// 用浮条上选的样式替换刚自动标记的那条高亮，
+    /// 并把样式记下来供下一次「高亮标记」直接使用。
+    func commitHighlight(tintHex: String?, underline: Bool) {
+        guard let id = pendingHighlightID,
+              let entity = highlightEntities.first(where: { $0.id == id }) else {
+            Diagnostics.log("高亮: 替换失败 — 找不到自动标记")
+            cancelPendingHighlight()
+            return
+        }
+
+        // 用户可能调过选择手柄：把已落库那一条的范围更新成最终选区
+        if let locator = pendingHighlight,
+           let data = try? JSONEncoder().encode(locator) {
+            let progression = locator.locations.totalProgression ?? entity.totalProgression
+            entity.locatorJSON = data
+            entity.totalProgression = progression
+            entity.chapterTitle = chapterTitle(atProgression: progression)
+            if let excerpt = locator.text?.highlight, !excerpt.isEmpty {
+                entity.excerpt = excerpt
+            }
+        }
+
+        entity.tintHex = tintHex
+        entity.underline = underline
+        try? modelContext.save()
+
+        // 记成「上一次的样式」：下一次点「高亮标记」直接用它
+        settings.highlightColorHex = tintHex
+        settings.highlightUnderline = underline
+
+        pendingHighlight = nil
+        pendingHighlightRect = nil
+        pendingHighlightID = nil
+
+        Diagnostics.log("高亮: 样式替换为 \(tintHex ?? "默认") 下划线 \(underline)")
         engine.clearSelection()
         reloadHighlights()
     }
@@ -596,6 +637,17 @@ final class ReaderSession {
         }()
         if remaining != chapterRemainingPages { chapterRemainingPages = remaining }
 
+        // 浮条跟着选区走：调整选择手柄时位置和最终范围都实时跟上。
+        // 选区暂时读不到也不收，等翻页 / 点正文再关闭。
+        if pendingHighlight != nil {
+            if let locator = engine.currentSelectionLocator, locator != pendingHighlight {
+                pendingHighlight = locator
+            }
+            if let frame = engine.currentSelectionFrame, pendingHighlightRect != frame {
+                pendingHighlightRect = frame
+            }
+        }
+
         syncBookmarkState()
 
         // 跳转按钮一分钟后自动消失
@@ -670,6 +722,19 @@ final class ReaderSession {
     }
 
     private func handleLocatorChange(_ locator: Locator) {
+        // 只有离开标记位置（翻页 / 大幅滚动）才收起浮条。
+        // 应用高亮装饰后的小幅位置回调不能把浮条弄没，
+        // 否则刚点完「高亮标记」浮条就消失了。
+        if let pending = pendingHighlight {
+            let current = engine.totalProgression
+            let origin = pending.locations.totalProgression ?? current
+            if abs(current - origin) > 0.002 {
+                pendingHighlight = nil
+                pendingHighlightRect = nil
+                pendingHighlightID = nil
+            }
+        }
+
         // 章节变化立即同步（用于底部章节名）
         let chapterIndex = engine.currentChapterIndex
         if chapterIndex != currentChapterIndex {

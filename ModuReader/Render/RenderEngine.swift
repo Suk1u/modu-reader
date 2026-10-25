@@ -131,6 +131,14 @@ protocol RenderEngine: AnyObject {
     /// 落库后再由调用方清掉。
     func clearSelection()
 
+    /// 当前正文选区的位置（阅读器视图坐标）。没有选区时为 nil。
+    ///
+    /// 浮条要跟着选区走：调整选择手柄时，浮条位置由这里刷新。
+    var currentSelectionFrame: CGRect? { get }
+
+    /// 当前正文选区的落点。调整选择范围后，高亮要覆盖最终选区。
+    var currentSelectionLocator: Locator? { get }
+
     /// 把指定落点滚到屏幕垂直中央。跳转后调用。
     func centerCurrentPosition(at locator: Locator)
 
@@ -158,6 +166,8 @@ extension RenderEngine {
     func chapterIndex(atProgression progression: Double) -> Int? { nil }
     func applyHighlights(_ marks: [HighlightMark]) {}
     func clearSelection() {}
+    var currentSelectionFrame: CGRect? { nil }
+    var currentSelectionLocator: Locator? { nil }
     func centerCurrentPosition(at locator: Locator) {}
 }
 

@@ -69,6 +69,10 @@ struct ReaderView: View {
                     .task { await prepare() }
             }
         }
+        .animation(
+            .spring(response: 0.26, dampingFraction: 0.82),
+            value: session?.pendingHighlight != nil
+        )
         .statusBarHidden(!showChrome)
         .persistentSystemOverlays(.hidden)
         .onAppear {
@@ -242,13 +246,22 @@ struct ReaderView: View {
                     },
                     onCancel: { session.cancelPendingHighlight() }
                 )
+                .background {
+                    // 整条浮条都吞掉点击：点到色点之间的空隙也不会穿到正文，
+                    // 避免刚标记好的选区被 WebView 清掉。
+                    Capsule()
+                        .fill(Color.clear)
+                        .contentShape(Capsule())
+                        .onTapGesture { }
+                }
                 .position(
                     x: x,
                     y: min(max(y, paletteHeight / 2 + 8), proxy.size.height - paletteHeight / 2 - 8)
                 )
+                .animation(.easeOut(duration: 0.12), value: session.pendingHighlightRect)
             }
             .ignoresSafeArea()
-            .transition(.opacity)
+            .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
         }
     }
 

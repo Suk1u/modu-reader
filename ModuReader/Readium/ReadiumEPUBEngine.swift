@@ -902,6 +902,17 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         navigator?.clearSelection()
     }
 
+    /// 当前选区的位置，供配色浮条跟随。
+    var currentSelectionFrame: CGRect? {
+        navigator?.currentSelection?.frame
+    }
+
+    /// 当前选区的落点，供浮条阶段同步最终选择范围。
+    var currentSelectionLocator: Locator? {
+        guard let selection = navigator?.currentSelection else { return nil }
+        return convert(readiumLocator: selection.locator)
+    }
+
     func applyHighlights(_ marks: [HighlightMark]) {
         highlightMarks = marks
         renderHighlights()

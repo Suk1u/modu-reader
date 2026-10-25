@@ -39,7 +39,7 @@ struct HighlightPalette: View {
                         .frame(width: 30, height: 30)
                         .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(HighlightPaletteButtonStyle())
                 .accessibilityLabel("高亮颜色")
             }
 
@@ -56,11 +56,24 @@ struct HighlightPalette: View {
                     .frame(width: 32, height: 32)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(HighlightPaletteButtonStyle())
             .accessibilityLabel("下划线高亮")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .glassEffect(.regular, in: Capsule())
+    }
+}
+
+/// 按压时放大并提亮，给颜色 / 下划线按钮一个明确的命中反馈。
+private struct HighlightPaletteButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 1.18 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(
+                .spring(response: 0.22, dampingFraction: 0.6),
+                value: configuration.isPressed
+            )
     }
 }
