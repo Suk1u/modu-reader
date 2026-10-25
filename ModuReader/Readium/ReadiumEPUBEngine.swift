@@ -1288,11 +1288,15 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
               Self.mightBeNote(fragment: fragment, href: link.href)
         else { return true }
 
+        Diagnostics.log("脚注: 走兜底识别 \(link.href)")
+
         Task { [weak self] in
             guard let self else { return }
             if let text = await self.noteText(for: link, fragment: fragment) {
+                Diagnostics.log("脚注: 气泡 \(text.count) 字 — \(fragment)")
                 self.presentNote(text: text, referrer: "", anchorID: fragment)
             } else if let navigator = self.navigator {
+                Diagnostics.log("脚注: 未识别为注，正常跳转 \(link.href)")
                 _ = await navigator.go(to: link)
             }
         }
@@ -1416,6 +1420,7 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
             if text.isEmpty {
                 Diagnostics.log("ReadiumEPUB: 脚注内容为空 — \(link.href)")
             } else {
+                Diagnostics.log("脚注: Readium 识别 — \(text.count) 字")
                 presentNote(
                     text: text,
                     referrer: Self.plainText(fromHTML: referrer),
