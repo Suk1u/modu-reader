@@ -71,7 +71,7 @@ struct ReaderView: View {
         }
         .animation(
             .spring(response: 0.26, dampingFraction: 0.82),
-            value: session?.pendingHighlight != nil
+            value: session?.pendingHighlightRect != nil
         )
         .statusBarHidden(!showChrome)
         .persistentSystemOverlays(.hidden)
@@ -226,7 +226,7 @@ struct ReaderView: View {
     /// 点外面的正文会由 WebView 的 tap 回调取消这次高亮。
     @ViewBuilder
     private func highlightPaletteOverlay(session: ReaderSession) -> some View {
-        if session.pendingHighlight != nil {
+        if session.pendingHighlight != nil, session.pendingHighlightRect != nil {
             GeometryReader { proxy in
                 // 与 HighlightPalette 的实际高度对齐（30pt 命中区 + 上下留白）。
                 let paletteHeight: CGFloat = 46
@@ -258,7 +258,6 @@ struct ReaderView: View {
                     x: x,
                     y: min(max(y, paletteHeight / 2 + 8), proxy.size.height - paletteHeight / 2 - 8)
                 )
-                .animation(.easeOut(duration: 0.12), value: session.pendingHighlightRect)
             }
             .ignoresSafeArea()
             .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))

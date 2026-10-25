@@ -4,6 +4,9 @@
 //
 //  选中文字后浮在选区上方的配色条：五个颜色 + 下划线。
 //
+//  点颜色 / 下划线时先亮起选中态，停一小段再落库 ——
+//  浮条会在落库后收起，没有这段停留就看不到任何点击反馈。
+//
 
 import SwiftUI
 
@@ -26,18 +29,33 @@ struct HighlightPalette: View {
         Swatch(hex: "#C0A8E8", color: Color(red: 0.75, green: 0.66, blue: 0.91)),
     ]
 
+    @State private var pickedHex: String?
+    @State private var pickedUnderline = false
+
     var body: some View {
         HStack(spacing: 10) {
             ForEach(Self.palette) { swatch in
+                let isPicked = pickedHex == swatch.hex && !pickedUnderline
+
                 Button {
-                    onPick(swatch.hex, false)
+                    pick(hex: swatch.hex, underline: false)
                 } label: {
                     Circle()
                         .fill(swatch.color)
                         .frame(width: 22, height: 22)
+                        .overlay {
+                            if isPicked {
+                                Circle().strokeBorder(Color.white, lineWidth: 2)
+                            }
+                        }
+                        .scaleEffect(isPicked ? 1.16 : 1)
                         // 视觉大小不变，命中区放大到 30pt，手指不用瞄准
                         .frame(width: 30, height: 30)
                         .contentShape(Circle())
+                        .animation(
+                            .spring(response: 0.2, dampingFraction: 0.6),
+                            value: isPicked
+                        )
                 }
                 .buttonStyle(HighlightPaletteButtonStyle())
                 .accessibilityLabel("高亮颜色")
@@ -49,12 +67,20 @@ struct HighlightPalette: View {
                 .accessibilityHidden(true)
 
             Button {
-                onPick(Self.palette[0].hex, true)
+                pick(hex: Self.palette[0].hex, underline: true)
             } label: {
                 Image(systemName: "underline")
                     .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(pickedUnderline ? Color.white : Color.primary)
                     .frame(width: 32, height: 32)
+                    .background {
+                        if pickedUnderline {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.primary.opacity(0.3))
+                        }
+                    }
                     .contentShape(.rect)
+                    .animation(.easeOut(duration: 0.15), value: pickedUnderline)
             }
             .buttonStyle(HighlightPaletteButtonStyle())
             .accessibilityLabel("下划线高亮")
@@ -62,6 +88,18 @@ struct HighlightPalette: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .glassEffect(.regular, in: Capsule())
+    }
+
+    /// 先亮选中态，停 180ms 再落库并收起浮条。
+    private func pick(hex: String, underline: Bool) {
+        guard pickedHex == nil, !pickedUnderline else { return }
+        pickedHex = hex
+        pickedUnderline = underline
+
+        Task { @MainActor in
+            try? await Task<Never, Never>.sleep(for: .milliseconds(180))
+            onPick(hex, underline)
+        }
     }
 }
 

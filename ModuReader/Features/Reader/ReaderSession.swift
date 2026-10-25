@@ -466,7 +466,12 @@ final class ReaderSession {
         try? modelContext.save()
 
         pendingHighlight = locator
-        pendingHighlightRect = rect
+        // 无效 frame（.zero / nil）先不显示浮条，等心跳拿到真实位置再出现，
+        // 避免浮条先闪一下再跳过去。
+        pendingHighlightRect = {
+            guard let rect, rect.width > 1, rect.height > 1 else { return nil }
+            return rect
+        }()
         pendingHighlightID = entity.id
 
         Diagnostics.log(
@@ -637,13 +642,20 @@ final class ReaderSession {
         }()
         if remaining != chapterRemainingPages { chapterRemainingPages = remaining }
 
-        // 浮条跟着选区走：调整选择手柄时位置和最终范围都实时跟上。
-        // 选区暂时读不到也不收，等翻页 / 点正文再关闭。
+        // 浮条跟着选区走：只有读者调整了选择范围才移动浮条。
+        // 自动落库后 Readium 会刷新 selection.frame，按 frame 无脑跟随
+        // 会让浮条刚出现就上下跳一下。
         if pendingHighlight != nil {
-            if let locator = engine.currentSelectionLocator, locator != pendingHighlight {
+            let selectionText = engine.currentSelectionLocator?.text?.highlight
+            let changed = selectionText != pendingHighlight?.text?.highlight
+
+            if changed, let locator = engine.currentSelectionLocator {
                 pendingHighlight = locator
             }
-            if let frame = engine.currentSelectionFrame, pendingHighlightRect != frame {
+
+            if pendingHighlightRect == nil || changed,
+               let frame = engine.currentSelectionFrame,
+               frame.width > 1, frame.height > 1 {
                 pendingHighlightRect = frame
             }
         }
