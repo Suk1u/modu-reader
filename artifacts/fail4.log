@@ -1,0 +1,574 @@
+﻿2026-10-25T01:05:34.8374040Z Current runner version: '2.338.0'
+2026-10-25T01:05:34.8388820Z ##[group]Runner Image Provisioner
+2026-10-25T01:05:34.8389320Z Hosted Compute Agent
+2026-10-25T01:05:34.8389680Z Version: 20261012.601
+2026-10-25T01:05:34.8390070Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d
+2026-10-25T01:05:34.8390530Z Build Date: 2026-10-12T17:48:21Z
+2026-10-25T01:05:34.8390960Z Worker ID: {58086baa-b42c-4a14-9609-805ea9495971}
+2026-10-25T01:05:34.8391400Z Region: westus
+2026-10-25T01:05:34.8391740Z Cloud: MacCloud
+2026-10-25T01:05:34.8392090Z ##[endgroup]
+2026-10-25T01:05:34.8392980Z ##[group]Operating System
+2026-10-25T01:05:34.8393360Z macOS
+2026-10-25T01:05:34.8393670Z 26.6.2
+2026-10-25T01:05:34.8393990Z 25G83
+2026-10-25T01:05:34.8394310Z ##[endgroup]
+2026-10-25T01:05:34.8394710Z ##[group]Runner Image
+2026-10-25T01:05:34.8395120Z Image: macos-26-arm64
+2026-10-25T01:05:34.8395490Z Version: 20261013.0424.1
+2026-10-25T01:05:34.8396280Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20261013.0424/images/macos/macos-26-arm64-Readme.md
+2026-10-25T01:05:34.8397380Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20261013.0424
+2026-10-25T01:05:34.8398020Z ##[endgroup]
+2026-10-25T01:05:34.8398790Z ##[group]GITHUB_TOKEN Permissions
+2026-10-25T01:05:34.8399950Z Contents: read
+2026-10-25T01:05:34.8400300Z Metadata: read
+2026-10-25T01:05:34.8400640Z Packages: read
+2026-10-25T01:05:34.8400980Z ##[endgroup]
+2026-10-25T01:05:34.8402280Z Secret source: Actions
+2026-10-25T01:05:34.8402820Z Cache mode: write
+2026-10-25T01:05:34.8403240Z Prepare workflow directory
+2026-10-25T01:05:34.8663990Z Prepare all required actions
+2026-10-25T01:05:34.8698140Z Getting action download info
+2026-10-25T01:05:35.0104760Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-25T01:05:35.2913400Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-25T01:05:35.4899070Z Complete job name: Build Unsigned IPA
+2026-10-25T01:05:35.5470260Z ##[group]Run actions/checkout@v4
+2026-10-25T01:05:35.5470970Z with:
+2026-10-25T01:05:35.5471320Z   repository: Suk1u/modu-reader
+2026-10-25T01:05:35.5474210Z   token: ***
+2026-10-25T01:05:35.5474540Z   ssh-strict: true
+2026-10-25T01:05:35.5474870Z   ssh-user: git
+2026-10-25T01:05:35.5475220Z   persist-credentials: true
+2026-10-25T01:05:35.5475600Z   clean: true
+2026-10-25T01:05:35.5475940Z   sparse-checkout-cone-mode: true
+2026-10-25T01:05:35.5476320Z   fetch-depth: 1
+2026-10-25T01:05:35.5476650Z   fetch-tags: false
+2026-10-25T01:05:35.5476990Z   show-progress: true
+2026-10-25T01:05:35.5477320Z   lfs: false
+2026-10-25T01:05:35.5477630Z   submodules: false
+2026-10-25T01:05:35.5477980Z   set-safe-directory: true
+2026-10-25T01:05:35.5478380Z   allow-unsafe-pr-checkout: false
+2026-10-25T01:05:35.5478890Z env:
+2026-10-25T01:05:35.5479210Z   XCODEGEN_VERSION: 2.42.0
+2026-10-25T01:05:35.5479590Z ##[endgroup]
+2026-10-25T01:05:36.1105690Z Syncing repository: Suk1u/modu-reader
+2026-10-25T01:05:36.1107730Z ##[group]Getting Git version info
+2026-10-25T01:05:36.1108380Z Working directory is '/Users/runner/work/modu-reader/modu-reader'
+2026-10-25T01:05:36.1109220Z [command]/opt/homebrew/bin/git version
+2026-10-25T01:05:36.1355770Z git version 2.56.0
+2026-10-25T01:05:36.1370150Z ##[endgroup]
+2026-10-25T01:05:36.1379420Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/d0cbf4a9-35f4-4a68-9c05-b332761db205/.gitconfig'
+2026-10-25T01:05:36.1387030Z Temporarily overriding HOME='/Users/runner/work/_temp/d0cbf4a9-35f4-4a68-9c05-b332761db205' before making global git config changes
+2026-10-25T01:05:36.1388130Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-25T01:05:36.1389960Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/modu-reader/modu-reader
+2026-10-25T01:05:36.1546610Z Deleting the contents of '/Users/runner/work/modu-reader/modu-reader'
+2026-10-25T01:05:36.1550140Z ##[group]Initializing the repository
+2026-10-25T01:05:36.1554030Z [command]/opt/homebrew/bin/git init /Users/runner/work/modu-reader/modu-reader
+2026-10-25T01:05:36.1907610Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-25T01:05:36.1909180Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-25T01:05:36.1910210Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-25T01:05:36.1910980Z hint: call:
+2026-10-25T01:05:36.1911430Z hint:
+2026-10-25T01:05:36.1911860Z hint: 	git config --global init.defaultBranch <name>
+2026-10-25T01:05:36.1912390Z hint:
+2026-10-25T01:05:36.1912930Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-25T01:05:36.1913670Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-25T01:05:36.1914360Z hint:
+2026-10-25T01:05:36.1914740Z hint: 	git branch -m <name>
+2026-10-25T01:05:36.1915160Z hint:
+2026-10-25T01:05:36.1915940Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-25T01:05:36.1922340Z Initialized empty Git repository in /Users/runner/work/modu-reader/modu-reader/.git/
+2026-10-25T01:05:36.1939260Z [command]/opt/homebrew/bin/git remote add origin https://github.com/Suk1u/modu-reader
+2026-10-25T01:05:36.2053950Z ##[endgroup]
+2026-10-25T01:05:36.2054840Z ##[group]Disabling automatic garbage collection
+2026-10-25T01:05:36.2057500Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-25T01:05:36.2173240Z ##[endgroup]
+2026-10-25T01:05:36.2173980Z ##[group]Setting up auth
+2026-10-25T01:05:36.2177920Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-25T01:05:36.2254680Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-25T01:05:36.3633230Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-25T01:05:36.3734480Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-25T01:05:36.4867430Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-25T01:05:36.4930640Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-25T01:05:36.5933540Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-25T01:05:36.6035530Z ##[endgroup]
+2026-10-25T01:05:36.6037800Z ##[group]Fetching the repository
+2026-10-25T01:05:36.6043070Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +acd9940dea157693c8f7297560e79b4f7f3bca46:refs/remotes/origin/main
+2026-10-25T01:05:42.5758880Z From https://github.com/Suk1u/modu-reader
+2026-10-25T01:05:42.5760760Z  * [new ref]         acd9940dea157693c8f7297560e79b4f7f3bca46 -> origin/main
+2026-10-25T01:05:42.5765580Z ##[endgroup]
+2026-10-25T01:05:42.5766890Z ##[group]Determining the checkout info
+2026-10-25T01:05:42.5768370Z ##[endgroup]
+2026-10-25T01:05:42.5769120Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-25T01:05:42.5903260Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-25T01:05:42.6007510Z ##[group]Checking out the ref
+2026-10-25T01:05:42.6008870Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-10-25T01:05:42.8026890Z Switched to a new branch 'main'
+2026-10-25T01:05:42.8045740Z branch 'main' set up to track 'origin/main'.
+2026-10-25T01:05:42.8525560Z ##[endgroup]
+2026-10-25T01:05:42.8727430Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-25T01:05:42.8874840Z acd9940dea157693c8f7297560e79b4f7f3bca46
+2026-10-25T01:05:42.9315120Z ##[group]Run xcodebuild -version
+2026-10-25T01:05:42.9315620Z [36;1mxcodebuild -version[0m
+2026-10-25T01:05:42.9316000Z [36;1mxcrun --sdk iphoneos --show-sdk-version[0m
+2026-10-25T01:05:42.9368120Z shell: /bin/bash -e {0}
+2026-10-25T01:05:42.9368440Z env:
+2026-10-25T01:05:42.9368720Z   XCODEGEN_VERSION: 2.42.0
+2026-10-25T01:05:42.9369040Z ##[endgroup]
+2026-10-25T01:05:43.1256910Z Xcode 26.6
+2026-10-25T01:05:43.1263340Z Build version 17F113
+2026-10-25T01:05:45.3823340Z 26.5
+2026-10-25T01:05:45.3874290Z ##[group]Run brew install xcodegen
+2026-10-25T01:05:45.3874580Z [36;1mbrew install xcodegen[0m
+2026-10-25T01:05:45.3874770Z [36;1mxcodegen --version[0m
+2026-10-25T01:05:45.3903870Z shell: /bin/bash -e {0}
+2026-10-25T01:05:45.3904020Z env:
+2026-10-25T01:05:45.3904180Z   XCODEGEN_VERSION: 2.42.0
+2026-10-25T01:05:45.3904360Z ##[endgroup]
+2026-10-25T01:05:47.3351110Z [32m==>[0m [1mDownloading bottle manifests[0m
+2026-10-25T01:05:47.3405290Z ✔︎ Bottle Manifest xcodegen (2.46.0)
+2026-10-25T01:05:47.3422600Z [32m==>[0m [1mFetching downloads for: [32mxcodegen[39m[0m
+2026-10-25T01:05:48.7449000Z ✔︎ Bottle xcodegen (2.46.0)
+2026-10-25T01:05:48.7836000Z [34m==>[0m [1mPouring xcodegen--2.46.0.arm64_tahoe.bottle.1.tar.gz[0m
+2026-10-25T01:05:49.3185600Z 🍺  /opt/homebrew/Cellar/xcodegen/2.46.0: 38 files, 7.4MB
+2026-10-25T01:05:49.3402430Z Version: 2.46.0
+2026-10-25T01:05:49.3455030Z ##[group]Run xcodegen generate
+2026-10-25T01:05:49.3455300Z [36;1mxcodegen generate[0m
+2026-10-25T01:05:49.3492580Z shell: /bin/bash -e {0}
+2026-10-25T01:05:49.3492850Z env:
+2026-10-25T01:05:49.3493070Z   XCODEGEN_VERSION: 2.42.0
+2026-10-25T01:05:49.3493310Z ##[endgroup]
+2026-10-25T01:05:49.4030310Z ⚙️  Generating plists...
+2026-10-25T01:05:49.4038650Z ⚙️  Generating project...
+2026-10-25T01:05:49.4229700Z ⚙️  Writing project...
+2026-10-25T01:05:49.4541760Z Created project at /Users/runner/work/modu-reader/modu-reader/ModuReader.xcodeproj
+2026-10-25T01:05:49.4585690Z ##[group]Run plutil -lint ModuReader/Resources/Info.plist
+2026-10-25T01:05:49.4586090Z [36;1mplutil -lint ModuReader/Resources/Info.plist[0m
+2026-10-25T01:05:49.4622720Z shell: /bin/bash -e {0}
+2026-10-25T01:05:49.4623010Z env:
+2026-10-25T01:05:49.4623220Z   XCODEGEN_VERSION: 2.42.0
+2026-10-25T01:05:49.4623420Z ##[endgroup]
+2026-10-25T01:05:49.5084870Z ModuReader/Resources/Info.plist: OK
+2026-10-25T01:05:49.5125550Z ##[group]Run set -o pipefail
+2026-10-25T01:05:49.5125880Z [36;1mset -o pipefail[0m
+2026-10-25T01:05:49.5126080Z [36;1mxcodebuild archive \[0m
+2026-10-25T01:05:49.5126350Z [36;1m  -project ModuReader.xcodeproj \[0m
+2026-10-25T01:05:49.5126730Z [36;1m  -scheme ModuReader \[0m
+2026-10-25T01:05:49.5126950Z [36;1m  -configuration Release \[0m
+2026-10-25T01:05:49.5127250Z [36;1m  -destination 'generic/platform=iOS' \[0m
+2026-10-25T01:05:49.5127580Z [36;1m  -archivePath build/ModuReader.xcarchive \[0m
+2026-10-25T01:05:49.5127880Z [36;1m  CODE_SIGNING_ALLOWED=NO \[0m
+2026-10-25T01:05:49.5144260Z [36;1m  CODE_SIGNING_REQUIRED=NO \[0m
+2026-10-25T01:05:49.5144550Z [36;1m  CODE_SIGN_IDENTITY="" \[0m
+2026-10-25T01:05:49.5144790Z [36;1m  AD_HOC_CODE_SIGNING_ALLOWED=YES \[0m
+2026-10-25T01:05:49.5145050Z [36;1m  | xcbeautify[0m
+2026-10-25T01:05:49.5179110Z shell: /bin/bash -e {0}
+2026-10-25T01:05:49.5179380Z env:
+2026-10-25T01:05:49.5179560Z   XCODEGEN_VERSION: 2.42.0
+2026-10-25T01:05:49.5179850Z ##[endgroup]
+2026-10-25T01:06:36.7790760Z 
+2026-10-25T01:06:36.7840300Z ----- xcbeautify -----
+2026-10-25T01:06:36.7840900Z Version: 3.2.1
+2026-10-25T01:06:36.7844200Z ----------------------
+2026-10-25T01:06:36.7845100Z 
+2026-10-25T01:06:36.7852450Z [36;1mResolving Package Graph[0m
+2026-10-25T01:06:36.7852940Z Fetching https://github.com/readium/swift-toolkit.git
+2026-10-25T01:06:36.7853440Z Fetching https://github.com/stephencelis/SQLite.swift.git
+2026-10-25T01:06:36.7853870Z Fetching https://github.com/scinfu/SwiftSoup.git
+2026-10-25T01:06:36.7854320Z Fetching https://github.com/readium/ZIPFoundation.git
+2026-10-25T01:06:36.7872440Z Fetching https://github.com/readium/GCDWebServer.git
+2026-10-25T01:06:36.7873780Z Fetching https://github.com/readium/Fuzi.git
+2026-10-25T01:06:36.7875820Z Fetching https://github.com/ra1028/DifferenceKit.git
+2026-10-25T01:06:36.7876740Z Fetching https://github.com/marmelroy/Zip.git
+2026-10-25T01:06:36.7878920Z Fetching https://github.com/krzyzanowskim/CryptoSwift.git
+2026-10-25T01:06:36.7880600Z Checking out [1m‘SwiftSoup’[0m @ [32m2.14.3[0m
+2026-10-25T01:06:36.7885110Z Checking out [1m‘DifferenceKit’[0m @ [32m1.3.0[0m
+2026-10-25T01:06:36.7886040Z Checking out [1m‘Fuzi’[0m @ [32m4.0.1[0m
+2026-10-25T01:06:36.7887090Z Checking out [1m‘ZIPFoundation’[0m @ [32m3.0.1[0m
+2026-10-25T01:06:36.7888180Z Checking out [1m‘swift-toolkit’[0m @ [32m3.11.1[0m
+2026-10-25T01:06:36.7889310Z Checking out [1m‘SQLite.swift’[0m @ [32m0.17.0[0m
+2026-10-25T01:06:36.7890430Z Checking out [1m‘GCDWebServer’[0m @ [32m4.0.1[0m
+2026-10-25T01:06:36.7891500Z Checking out [1m‘Zip’[0m @ [32m2.1.2[0m
+2026-10-25T01:06:36.7892990Z Checking out [1m‘CryptoSwift’[0m @ [32m1.10.0[0m
+2026-10-25T01:06:36.7893540Z [32;1mResolved source packages[0m
+2026-10-25T01:06:36.7894310Z [36;1mDifferenceKit[0m - [1mhttps://github.com/ra1028/DifferenceKit.git[0m @ [32m1.3.0[0m
+2026-10-25T01:06:36.7895010Z [36;1mReadiumFuzi[0m - [1mhttps://github.com/readium/Fuzi.git[0m @ [32m4.0.1[0m
+2026-10-25T01:06:36.7895640Z [36;1mZip[0m - [1mhttps://github.com/marmelroy/Zip.git[0m @ [32m2.1.2[0m
+2026-10-25T01:06:36.7896430Z [36;1mReadium[0m - [1mhttps://github.com/readium/swift-toolkit.git[0m @ [32m3.11.1[0m
+2026-10-25T01:06:36.7897350Z [36;1mCryptoSwift[0m - [1mhttps://github.com/krzyzanowskim/CryptoSwift.git[0m @ [32m1.10.0[0m
+2026-10-25T01:06:36.7899080Z [36;1mSQLite.swift[0m - [1mhttps://github.com/stephencelis/SQLite.swift.git[0m @ [32m0.17.0[0m
+2026-10-25T01:06:36.7899830Z [36;1mReadiumZIPFoundation[0m - [1mhttps://github.com/readium/ZIPFoundation.git[0m @ [32m3.0.1[0m
+2026-10-25T01:06:36.7900520Z [36;1mGCDWebServer[0m - [1mhttps://github.com/readium/GCDWebServer.git[0m @ [32m4.0.1[0m
+2026-10-25T01:06:36.7901240Z [36;1mSwiftSoup[0m - [1mhttps://github.com/scinfu/SwiftSoup.git[0m @ [32m2.14.3[0m
+2026-10-25T01:06:36.7901820Z [36;1mnote: [0mUsing codesigning identity override: 
+2026-10-25T01:06:36.7908470Z [36;1mnote: [0mBuilding targets in dependency order
+2026-10-25T01:06:36.7909210Z [36;1mnote: [0mTarget dependency graph (27 targets)
+2026-10-25T01:06:36.7909790Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal.modulemap
+2026-10-25T01:06:36.7910420Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip.modulemap
+2026-10-25T01:06:36.7910940Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7911590Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip.DependencyMetadataFileList
+2026-10-25T01:06:36.7912140Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip_const_extract_protocols.json
+2026-10-25T01:06:36.7912690Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip.SwiftFileList
+2026-10-25T01:06:36.7913200Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip.SwiftConstValuesFileList
+2026-10-25T01:06:36.7913700Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip.LinkFileList
+2026-10-25T01:06:36.7914220Z [[36mZip[0m] [1mWrite Auxiliary File[0m Zip-OutputFileMap.json
+2026-10-25T01:06:36.7914690Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup.modulemap
+2026-10-25T01:06:36.7915340Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7915930Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup.DependencyMetadataFileList
+2026-10-25T01:06:36.7916550Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup_const_extract_protocols.json
+2026-10-25T01:06:36.7917130Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup.SwiftFileList
+2026-10-25T01:06:36.7917720Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup.SwiftConstValuesFileList
+2026-10-25T01:06:36.7918680Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup.LinkFileList
+2026-10-25T01:06:36.7919280Z [[36mSwiftSoup[0m] [1mWrite Auxiliary File[0m SwiftSoup-OutputFileMap.json
+2026-10-25T01:06:36.7920070Z [[36mReadium_ReadiumStreamer[0m] [1mWrite Auxiliary File[0m empty-Readium_ReadiumStreamer.plist
+2026-10-25T01:06:36.7921020Z [[36mReadium_ReadiumStreamer[0m] [1mWrite Auxiliary File[0m Readium_ReadiumStreamer.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7921890Z [[36mReadium_ReadiumStreamer[0m] [1mWrite Auxiliary File[0m Readium_ReadiumStreamer.DependencyMetadataFileList
+2026-10-25T01:06:36.7922720Z [[36mReadium_ReadiumShared[0m] [1mWrite Auxiliary File[0m empty-Readium_ReadiumShared.plist
+2026-10-25T01:06:36.7923640Z [[36mReadium_ReadiumShared[0m] [1mWrite Auxiliary File[0m Readium_ReadiumShared.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7924510Z [[36mReadium_ReadiumShared[0m] [1mWrite Auxiliary File[0m Readium_ReadiumShared.DependencyMetadataFileList
+2026-10-25T01:06:36.7925250Z [[36mReadium_ReadiumNavigator[0m] [1mWrite Auxiliary File[0m empty-Readium_ReadiumNavigator.plist
+2026-10-25T01:06:36.7926140Z [[36mReadium_ReadiumNavigator[0m] [1mWrite Auxiliary File[0m Readium_ReadiumNavigator.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7926960Z [[36mReadium_ReadiumNavigator[0m] [1mWrite Auxiliary File[0m Readium_ReadiumNavigator.DependencyMetadataFileList
+2026-10-25T01:06:36.7927890Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m empty-ReadiumZIPFoundation_ReadiumZIPFoundation.plist
+2026-10-25T01:06:36.7928880Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation_ReadiumZIPFoundation.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7930030Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation_ReadiumZIPFoundation.DependencyMetadataFileList
+2026-10-25T01:06:36.7930920Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation.modulemap
+2026-10-25T01:06:36.7931720Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7932880Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation.DependencyMetadataFileList
+2026-10-25T01:06:36.7933930Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation_const_extract_protocols.json
+2026-10-25T01:06:36.7934630Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation.SwiftFileList
+2026-10-25T01:06:36.7935390Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation.SwiftConstValuesFileList
+2026-10-25T01:06:36.7936180Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation.LinkFileList
+2026-10-25T01:06:36.7937030Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m ReadiumZIPFoundation-OutputFileMap.json
+2026-10-25T01:06:36.7937690Z [[36mReadiumZIPFoundation[0m] [1mWrite Auxiliary File[0m resource_bundle_accessor.swift
+2026-10-25T01:06:36.7938390Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer.modulemap
+2026-10-25T01:06:36.7939130Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7939810Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer.DependencyMetadataFileList
+2026-10-25T01:06:36.7940590Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer_const_extract_protocols.json
+2026-10-25T01:06:36.7941280Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer.SwiftFileList
+2026-10-25T01:06:36.7941990Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer.SwiftConstValuesFileList
+2026-10-25T01:06:36.7942720Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer.LinkFileList
+2026-10-25T01:06:36.7943800Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m ReadiumStreamer-OutputFileMap.json
+2026-10-25T01:06:36.7944480Z [[36mReadiumStreamer[0m] [1mWrite Auxiliary File[0m resource_bundle_accessor.swift
+2026-10-25T01:06:36.7945110Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared.modulemap
+2026-10-25T01:06:36.7945850Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7946560Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared.DependencyMetadataFileList
+2026-10-25T01:06:36.7947200Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared_const_extract_protocols.json
+2026-10-25T01:06:36.7948040Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared.SwiftFileList
+2026-10-25T01:06:36.7948740Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared.SwiftConstValuesFileList
+2026-10-25T01:06:36.7949420Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared.LinkFileList
+2026-10-25T01:06:36.7950020Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m ReadiumShared-OutputFileMap.json
+2026-10-25T01:06:36.7950590Z [[36mReadiumShared[0m] [1mWrite Auxiliary File[0m resource_bundle_accessor.swift
+2026-10-25T01:06:36.7951200Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator.modulemap
+2026-10-25T01:06:36.7951920Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7952710Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator.DependencyMetadataFileList
+2026-10-25T01:06:36.7953370Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator_const_extract_protocols.json
+2026-10-25T01:06:36.7954050Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator.SwiftFileList
+2026-10-25T01:06:36.7954740Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator.SwiftConstValuesFileList
+2026-10-25T01:06:36.7955330Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator.LinkFileList
+2026-10-25T01:06:36.7956030Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m ReadiumNavigator-OutputFileMap.json
+2026-10-25T01:06:36.7956600Z [[36mReadiumNavigator[0m] [1mWrite Auxiliary File[0m resource_bundle_accessor.swift
+2026-10-25T01:06:36.7957500Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7958180Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal.DependencyMetadataFileList
+2026-10-25T01:06:36.7958880Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal_const_extract_protocols.json
+2026-10-25T01:06:36.7959470Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal.SwiftFileList
+2026-10-25T01:06:36.7960010Z [[36mZip[0m] [1mCopy[0m Zip.modulemap -> Zip.modulemap
+2026-10-25T01:06:36.7960540Z [[36mSwiftSoup[0m] [1mCopy[0m SwiftSoup.modulemap -> SwiftSoup.modulemap
+2026-10-25T01:06:36.7961230Z [[36mReadiumZIPFoundation[0m] [1mCopy[0m ReadiumZIPFoundation.modulemap -> ReadiumZIPFoundation.modulemap
+2026-10-25T01:06:36.7961970Z [[36mReadiumStreamer[0m] [1mCopy[0m ReadiumStreamer.modulemap -> ReadiumStreamer.modulemap
+2026-10-25T01:06:36.7962570Z [[36mReadiumShared[0m] [1mCopy[0m ReadiumShared.modulemap -> ReadiumShared.modulemap
+2026-10-25T01:06:36.7963210Z [[36mReadiumNavigator[0m] [1mCopy[0m ReadiumNavigator.modulemap -> ReadiumNavigator.modulemap
+2026-10-25T01:06:36.7963830Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal.SwiftConstValuesFileList
+2026-10-25T01:06:36.7964480Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal.LinkFileList
+2026-10-25T01:06:36.7965120Z [[36mReadiumInternal[0m] [1mWrite Auxiliary File[0m ReadiumInternal-OutputFileMap.json
+2026-10-25T01:06:36.7965700Z [[36mReadiumInternal[0m] [1mCopy[0m ReadiumInternal.modulemap -> ReadiumInternal.modulemap
+2026-10-25T01:06:36.7966470Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi.modulemap
+2026-10-25T01:06:36.7967030Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7967770Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi.DependencyMetadataFileList
+2026-10-25T01:06:36.7968400Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi_const_extract_protocols.json
+2026-10-25T01:06:36.7969010Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi.SwiftFileList
+2026-10-25T01:06:36.7969620Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi.SwiftConstValuesFileList
+2026-10-25T01:06:36.7970180Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi.LinkFileList
+2026-10-25T01:06:36.7970800Z [[36mReadiumFuzi[0m] [1mWrite Auxiliary File[0m ReadiumFuzi-OutputFileMap.json
+2026-10-25T01:06:36.7971370Z [[36mReadiumFuzi[0m] [1mCopy[0m ReadiumFuzi.modulemap -> ReadiumFuzi.modulemap
+2026-10-25T01:06:36.7972050Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader_const_extract_protocols.json
+2026-10-25T01:06:36.7972580Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader.SwiftFileList
+2026-10-25T01:06:36.7973160Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader.SwiftConstValuesFileList
+2026-10-25T01:06:36.7973770Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader.LinkFileList
+2026-10-25T01:06:36.7974260Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader-OutputFileMap.json
+2026-10-25T01:06:36.7974780Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader.hmap
+2026-10-25T01:06:36.7975340Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7976070Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader.DependencyMetadataFileList
+2026-10-25T01:06:36.7976630Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader-project-headers.hmap
+2026-10-25T01:06:36.7977240Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader-own-target-headers.hmap
+2026-10-25T01:06:36.7977780Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader-generated-files.hmap
+2026-10-25T01:06:36.7978480Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader-all-target-headers.hmap
+2026-10-25T01:06:36.7979460Z [[36mModuReader[0m] [1mWrite Auxiliary File[0m ModuReader-all-non-framework-target-headers.hmap
+2026-10-25T01:06:36.7980200Z [[36mMinizip[0m] [1mWrite Auxiliary File[0m Minizip.LinkFileList
+2026-10-25T01:06:36.7980900Z [[36mMinizip[0m] [1mWrite Auxiliary File[0m 7187679823f38a2a940e0043cdf9d637-common-args.resp
+2026-10-25T01:06:36.7981540Z [[36mMinizip[0m] [1mWrite Auxiliary File[0m Minizip.modulemap
+2026-10-25T01:06:36.7982130Z [[36mMinizip[0m] [1mWrite Auxiliary File[0m Minizip.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7982780Z [[36mMinizip[0m] [1mWrite Auxiliary File[0m Minizip.DependencyMetadataFileList
+2026-10-25T01:06:36.7983350Z [[36mMinizip[0m] [1mCopy[0m Minizip.modulemap -> Minizip.modulemap
+2026-10-25T01:06:36.7983960Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit_const_extract_protocols.json
+2026-10-25T01:06:36.7984520Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit.SwiftFileList
+2026-10-25T01:06:36.7985140Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit.SwiftConstValuesFileList
+2026-10-25T01:06:36.7985690Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit.LinkFileList
+2026-10-25T01:06:36.7986350Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit-OutputFileMap.json
+2026-10-25T01:06:36.7986980Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit.modulemap
+2026-10-25T01:06:36.7987730Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7988530Z [[36mDifferenceKit[0m] [1mWrite Auxiliary File[0m DifferenceKit.DependencyMetadataFileList
+2026-10-25T01:06:36.7989400Z [[36mDifferenceKit[0m] [1mCopy[0m DifferenceKit.modulemap -> DifferenceKit.modulemap
+2026-10-25T01:06:36.7990380Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mWrite Auxiliary File[0m empty-CryptoSwift_CryptoSwiftResources.plist
+2026-10-25T01:06:36.7991380Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwift_CryptoSwiftResources.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.7992630Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwift_CryptoSwiftResources.DependencyMetadataFileList
+2026-10-25T01:06:36.7993570Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources_const_extract_protocols.json
+2026-10-25T01:06:36.7994660Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources.SwiftFileList
+2026-10-25T01:06:36.7995870Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources.SwiftConstValuesFileList
+2026-10-25T01:06:36.7996650Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources.LinkFileList
+2026-10-25T01:06:36.7997460Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources-OutputFileMap.json
+2026-10-25T01:06:36.7998100Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m resource_bundle_accessor.swift
+2026-10-25T01:06:36.7998880Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources.modulemap
+2026-10-25T01:06:36.7999860Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.8000690Z [[36mCryptoSwiftResources[0m] [1mWrite Auxiliary File[0m CryptoSwiftResources.DependencyMetadataFileList
+2026-10-25T01:06:36.8001470Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift_const_extract_protocols.json
+2026-10-25T01:06:36.8034700Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift.SwiftFileList
+2026-10-25T01:06:36.8035650Z [[36mCryptoSwiftResources[0m] [1mCopy[0m CryptoSwiftResources.modulemap -> CryptoSwiftResources.modulemap
+2026-10-25T01:06:36.8036360Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift.SwiftConstValuesFileList
+2026-10-25T01:06:36.8036990Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift.LinkFileList
+2026-10-25T01:06:36.8038170Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift-OutputFileMap.json
+2026-10-25T01:06:36.8039970Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift.modulemap
+2026-10-25T01:06:36.8041710Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift.DependencyStaticMetadataFileList
+2026-10-25T01:06:36.8043720Z [[36mCryptoSwift[0m] [1mWrite Auxiliary File[0m CryptoSwift.DependencyMetadataFileList
+2026-10-25T01:06:36.8045920Z [[36mCryptoSwift[0m] [1mCopy[0m CryptoSwift.modulemap -> CryptoSwift.modulemap
+2026-10-25T01:06:36.8047300Z [[36mReadium_ReadiumStreamer[0m] [1mProcessing[0m empty-Readium_ReadiumStreamer.plist
+2026-10-25T01:06:36.8055600Z [[36mReadium_ReadiumStreamer[0m] [1mCopying[0m Assets
+2026-10-25T01:06:36.8063890Z [[36mReadium_ReadiumShared[0m] [1mProcessing[0m empty-Readium_ReadiumShared.plist
+2026-10-25T01:06:36.8064610Z [[36mReadium_ReadiumShared[0m] [1mCopying[0m W3CAccessibilityMetadataDisplayGuide.strings
+2026-10-25T01:06:36.8065260Z [[36mReadium_ReadiumShared[0m] [1mCopying[0m W3CAccessibilityMetadataDisplayGuide.strings
+2026-10-25T01:06:36.8066070Z [[36mReadium_ReadiumShared[0m] [1mCopying[0m W3CAccessibilityMetadataDisplayGuide.strings
+2026-10-25T01:06:36.8066860Z [[36mReadium_ReadiumNavigator[0m] [1mProcessing[0m empty-Readium_ReadiumNavigator.plist
+2026-10-25T01:06:36.8067510Z [[36mReadium_ReadiumNavigator[0m] [1mCopying[0m Localizable.strings
+2026-10-25T01:06:36.8067970Z [[36mReadium_ReadiumNavigator[0m] [1mCopying[0m Assets
+2026-10-25T01:06:36.8068750Z [[36mReadium_ReadiumStreamer[0m] [1mRegisterExecutionPolicyException[0m Readium_ReadiumStreamer.bundle
+2026-10-25T01:06:36.8069470Z [[36mReadium_ReadiumStreamer[0m] [1mTouching[0m Readium_ReadiumStreamer.bundle
+2026-10-25T01:06:36.8070790Z [[36mReadium_ReadiumShared[0m] [1mRegisterExecutionPolicyException[0m Readium_ReadiumShared.bundle
+2026-10-25T01:06:36.8071560Z [[36mReadium_ReadiumShared[0m] [1mTouching[0m Readium_ReadiumShared.bundle
+2026-10-25T01:06:36.8072250Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mProcessing[0m empty-ReadiumZIPFoundation_ReadiumZIPFoundation.plist
+2026-10-25T01:06:36.8072980Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mCopying[0m PrivacyInfo.xcprivacy
+2026-10-25T01:06:36.8073720Z [[36mReadium_ReadiumNavigator[0m] [1mRegisterExecutionPolicyException[0m Readium_ReadiumNavigator.bundle
+2026-10-25T01:06:36.8074360Z [[36mReadium_ReadiumNavigator[0m] [1mTouching[0m Readium_ReadiumNavigator.bundle
+2026-10-25T01:09:59.2770810Z ** ARCHIVE FAILED **
+2026-10-25T01:09:59.2772980Z 
+2026-10-25T01:09:59.2773110Z 
+2026-10-25T01:09:59.2777470Z The following build commands failed:
+2026-10-25T01:09:59.2787300Z 	CompileSwift normal arm64 (in target 'ModuReader' from project 'ModuReader')
+2026-10-25T01:09:59.2893880Z 	SwiftCompile normal arm64 Compiling\ AppContainer.swift,\ AppDelegate.swift,\ BookEntity.swift,\ BookFontRegistry.swift,\ BookmarkEntity.swift,\ Chapter.swift,\ ChapterLayout.swift,\ ChapterSplitter.swift,\ CustomThemePanel.swift,\ Diagnostics.swift,\ DiagnosticsView.swift,\ EPUBMerger.swift,\ EPUBParser.swift,\ FileStore.swift,\ FormatSniffer.swift,\ HighlightEntity.swift,\ HighlightStyleSheet.swift,\ ImportPresenter.swift,\ ImportService.swift,\ InboxScanner.swift,\ LibraryView.swift,\ Locator.swift,\ LocatorResolver.swift,\ ModelContainer+Modu.swift,\ ModuReaderApp.swift,\ NoteBubble.swift,\ PageIndexCache.swift,\ PagePool.swift,\ PageSlice.swift,\ Paginator.swift,\ Publication.swift,\ ReaderChrome.swift,\ ReaderSession.swift,\ ReaderSettings.swift,\ ReaderSettingsPanel.swift,\ ReaderTheme.swift,\ ReaderView.swift,\ ReadingProgress.swift,\ ReadiumEPUBEngine.swift,\ ReadiumStack.swift,\ RenderEngine.swift,\ ScrollChapterView.swift,\ SearchPanel.swift,\ SettingsView.swift,\ SimpleZipWriter.swift,\ StageFile.swift,\ TOCPanel.swift,\ TextEPUBBuilder.swift,\ TextEncodingDetector.swift,\ TextKitEngine.swift,\ TextPageView.swift,\ TextPublicationParser.swift,\ TypographyProfile.swift,\ ZipArchive.swift,\ GeneratedAssetSymbols.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/App/AppContainer.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/App/AppDelegate.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Persistence/BookEntity.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Fonts/BookFontRegistry.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Persistence/BookmarkEntity.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Domain/Chapter.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/ChapterLayout.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Parsing/ChapterSplitter.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/CustomThemePanel.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Diagnostics.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Settings/DiagnosticsView.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Parsing/EPUBMerger.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Parsing/EPUBParser.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Storage/FileStore.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Import/FormatSniffer.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Persistence/HighlightEntity.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/HighlightStyleSheet.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Library/ImportPresenter.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Import/ImportService.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Import/InboxScanner.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Library/LibraryView.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Domain/Locator.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Domain/LocatorResolver.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Persistence/ModelContainer+Modu.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/App/ModuReaderApp.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/NoteBubble.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Cache/PageIndexCache.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/PagePool.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/PageSlice.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/Paginator.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Domain/Publication.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/ReaderChrome.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/ReaderSession.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/ReaderSettings.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/ReaderSettingsPanel.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/DesignSystem/ReaderTheme.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/ReaderView.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Domain/ReadingProgress.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Readium/ReadiumEPUBEngine.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Readium/ReadiumStack.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/RenderEngine.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/ScrollChapterView.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/SearchPanel.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Settings/SettingsView.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Parsing/SimpleZipWriter.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Import/StageFile.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Features/Reader/TOCPanel.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Parsing/TextEPUBBuilder.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Encoding/TextEncodingDetector.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/TextKitEngine.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/TextPageView.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Parsing/TextPublicationParser.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Render/TextKit/TypographyProfile.swift /Users/runner/work/modu-reader/modu-reader/ModuReader/Services/Archive/ZipArchive.swift /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/IntermediateBuildFilesPath/ModuReader.build/Release-iphoneos/ModuReader.build/DerivedSources/GeneratedAssetSymbols.swift /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/ReadiumFuzi.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreFoundation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreImage.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/CryptoSwift.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/FileProvider.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/os.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Network.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/SwiftData.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CryptoKit.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/NaturalLanguage.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Observation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Swift.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_SwiftData_SwiftUI.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Dispatch.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/DataDetection.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_Builtin_float.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/UIKit.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreVideo.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/ReadiumNavigator.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/XPC.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/ReadiumShared.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_StringProcessing.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreMedia.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Metal.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Foundation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreTransferable.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Darwin.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/System.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/DeveloperToolsSupport.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AVFoundation.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/ReadiumInternal.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/ObjectiveC.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_WebKit_SwiftUI.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Distributed.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Combine.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/SwiftUI.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/LocalAuthentication.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/PDFKit.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/ReadiumStreamer.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Accessibility.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/DifferenceKit.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Spatial.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/SafariServices.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/ReadiumZIPFoundation.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreMIDI.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_DarwinFoundation2.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_DarwinFoundation3.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/UniformTypeIdentifiers.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreGraphics.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Symbols.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Synchronization.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/WebKit.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/BuildProductsPath/Release-iphoneos/SwiftSoup.swiftmodule/arm64-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/OSLog.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreData.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/SwiftUICore.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_Concurrency.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AuthenticationServices.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AVFAudio.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreText.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/simd.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AudioToolbox.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/MediaPlayer.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_DarwinFoundation1.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreAudio.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/QuartzCore.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Compression.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Accessibility-9IG3T7V1FWFCU68JKVI9WHNJJ.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/QuartzCore-1VHWEBL5JDNKKBD3M2B9XGGZP.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftUICore-3HF1D7NC1HHEO60RDXJSYILSO.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Dispatch-5JR11P9QJFMZ8768UCOXU079X.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreFoundation-NMLIBYNLQ3T4T31GNNFXP25E.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os_object-89WRA1PNUNX32S08JLABVHNDE.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/FileProvider-C2TRJYEGVJYP1F5T00US669N1.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation3-2AMMM2NCABKBZ57312XYAY4KB.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdarg-E9ZMVSPF8H1XVD02QZCD2VMKG.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_inttypes-AIQCOYCXJ726L83DZ5X130HKT.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVRouting-315PSFGLYO57O3VL8DBKVMORT.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_intrinsics-2CL163JXS5K3QW4N8VUN93JYK.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/LocalAuthentication-749C4B0I90RS5OV6QB157Y5NH.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules/Minizip-2HZ7A8DGW6VXMT4AS0ATIDZ9R.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftUI-24K30IGVSNWQGILYI2L9UL4PR.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ptrcheck-6V4MSAOJPKICVMZXS53IO8CAC.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation1-F04O4ISEFPDF46DN2M9VCFHO2.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os_workgroup-9UV9XBIKLJMXG1L4D4RV1D486.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Spatial-9VVQWHG1PX6ZQCDGC5ZQGE388.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AudioToolbox-4PDA84JXOKAGL1NFAA13FTTXH.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/XPC-97C5CMTKDSKV614LLF0VRR32O.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MediaToolbox-V1K2N0OS57463V7BO08WJV9B.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CFNetwork-91NX7AGEBF1F6O8ARVGV89NQA.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Network-80M1NFIHR26WUOYJJVB736NYC.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stddef-E2SLCKQA5E8RTVWG9UJO0DUAJ.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_tgmath-4CLR63PBV1QLN2AH8JY3RB50Q.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/sys_types-48FI67XA7NU8M4J82VDTUB91U.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVFAudio-F2SH8B2V2J2BTEBOAXUR4R3LH.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ObjectiveC-7TWMMJRWCNM41ZXK8VFW9TCLW.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_float-C3ANAT98WTAT169NCMC5SCQ8P.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreVideo-3FBGDKHB22TSG1KS399WY63Z5.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/PDFKit-ESV3W4S2WZDPIXDNNHS40H7R1.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdbool-11Q20RJCPYO5MTQMRLH88F8UG.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/zlib-ERBLO6W8GL5W09M31GSIA5MLQ.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreAudio-17JH93BGJZKM7T8R9CJHLX78T.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreTransferable-8RHI3SQLGLWSQJ1T2KZW06E3J.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreMedia-8ZOAVDV9EVWGUJFVV8ZQ45N11.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_AvailabilityInternal-25CYNEB3I1G3EBB7C2TOKBC.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_SwiftConcurrencyShims-D5C2SXFO69MPR57XWQ4ZQNX0Q.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/simd-64ZL9HCHW3D7RMNOV5IGPTF5M.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdint-CV7O4577YOGTDDFR7HT2B261B.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreMIDI-576ILUUTUDOQPSM36M9U6V8EB.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SafariServices-BLBPUPCAEC2H34LT1J1DZMAHI.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/OSLog-7GC3REJQUZWV5O8OVBN4I2M7E.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/UIKit-5MJAHZ6GJRR7CJHKX4KBFS1UT.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Compression-88PJLBL6SMW1GX666TU6TYUGE.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Security-DBFV95UCW6YIU8VQD1BYMZPZ.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AuthenticationServices-8LX2MR3NM9MAU0GK1UWLAMMEV.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/NaturalLanguage-EJ87I7CQ65YAEAPAJME7X8QGM.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Metal-6XA92CQ0CTKFTPD5SB53OSUIF.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/libxml2-887EC2IQMRTFJ17K35JSP4USJ.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation2-DJQ3ML8EK89X26RY4BREFVJV8.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreGraphics-OE2QFWWQQ477ECJGTCIAWVNZ.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreAudioTypes-3RJA1GKC49RFTO1TAHX352XZ6.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/IOSurface-2296DFU9ZMDY6654660BF3L2W.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/UniformTypeIdentifiers-CHIVHTB2H1D0EHV05CK64T1WL.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os-9ZGI7BERG93LQOOEBNOM6NZ4Q.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DataDetection-RIZKCS6O2K1ANHKG9PW58F7D.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreImage-8EY6VZ2HPYF1Y60897NV727AV.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Foundation-ECXL4SU8WG2T9Z1EUPRADKLTG.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Darwin-AVTQ5RMXHRXQN9D3SIGPXZVII.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ptrauth-CYCWHAFZ8T5LYRFTPPWSB0JPU.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Symbols-EEB0CPCFIV5YJOTVM6UGZ1YS9.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MediaPlayer-4LLLFHMOIHITHJ3XOPYMOGZ04.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/UIUtilities-7D15GRA6EM50FO34NEGNN5W4R.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/OpenGLES-16Y1TVHMCUJM8N9NXTBR15LRK.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/WebKit-5LJ2UB6F4I4AHEI6EULHSAX6I.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreServices-3IBFUYCNJAGJTGGKCX53XK4QA.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_limits-DTZC9Z0TQ9Q1HD9NOCFCIASZA.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdatomic-83PM84EZ0RFNFJN6FYVDSNUY9.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/UserNotifications-AU8PATJRYJ6Z1K2WN56PSRJJN.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/dnssd-ISDKZ54A5B0R7RJFZS9Y1GMD.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreData-8I92V2TYD39GITFE4CEY5I86C.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MachO-1FHISA4GLJ9AUIW3NC37NK519.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreText-DYB432XB5MVQWVLB95JMPYBH7.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ImageIO-D64T9WCBE6BS29EXW0BD4KWSE.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVFoundation-4LWWMYT58RYYFPO92LL6R69UD.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftShims-R2TWHJLY6FE97IM1GAHZX11L.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DeveloperToolsSupport-2M4EETM0YLJHXRA93M1LWE2JW.pcm /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/IntermediateBuildFilesPath/ModuReader.build/Release-iphoneos/ModuReader.build/Objects-normal/arm64/ModuReader-dependencies-1.json (in target 'ModuReader' from project 'ModuReader')
+2026-10-25T01:09:59.3055160Z 	Archiving project ModuReader with scheme ModuReader
+2026-10-25T01:09:59.3056290Z (3 failures)
+2026-10-25T01:09:59.3298870Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mRegisterExecutionPolicyException[0m ReadiumZIPFoundation_ReadiumZIPFoundation.bundle
+2026-10-25T01:09:59.3334360Z [[36mReadiumZIPFoundation_ReadiumZIPFoundation[0m] [1mTouching[0m ReadiumZIPFoundation_ReadiumZIPFoundation.bundle
+2026-10-25T01:09:59.3336040Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mProcessing[0m empty-CryptoSwift_CryptoSwiftResources.plist
+2026-10-25T01:09:59.3338990Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mCopying[0m PrivacyInfo.xcprivacy
+2026-10-25T01:09:59.3343130Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mRegisterExecutionPolicyException[0m CryptoSwift_CryptoSwiftResources.bundle
+2026-10-25T01:09:59.3345050Z [[36mCryptoSwift_CryptoSwiftResources[0m] [1mTouching[0m CryptoSwift_CryptoSwiftResources.bundle
+2026-10-25T01:09:59.3349170Z [[36mMinizip[0m] [1mCompiling[0m zip.c
+2026-10-25T01:09:59.3351080Z [[36mMinizip[0m] [1mCompiling[0m unzip.c
+2026-10-25T01:09:59.3355040Z [[36mZip[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> Zip.swiftmodule
+2026-10-25T01:09:59.3356760Z [[36mZip[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> Zip.swiftdoc
+2026-10-25T01:09:59.3363720Z [[36mZip[0m] [1mCopy[0m arm64-apple-ios.abi.json -> Zip.abi.json
+2026-10-25T01:09:59.3366940Z [[36mReadiumFuzi[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> ReadiumFuzi.swiftmodule
+2026-10-25T01:09:59.3369370Z [[36mReadiumFuzi[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> ReadiumFuzi.swiftdoc
+2026-10-25T01:09:59.3374270Z [[36mReadiumFuzi[0m] [1mCopy[0m arm64-apple-ios.abi.json -> ReadiumFuzi.abi.json
+2026-10-25T01:09:59.3376880Z [[36mCryptoSwiftResources[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> CryptoSwiftResources.swiftmodule
+2026-10-25T01:09:59.3380320Z [[36mCryptoSwiftResources[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> CryptoSwiftResources.swiftdoc
+2026-10-25T01:09:59.3382030Z [[36mCryptoSwiftResources[0m] [1mCopy[0m arm64-apple-ios.abi.json -> CryptoSwiftResources.abi.json
+2026-10-25T01:09:59.3385380Z [[36mReadiumInternal[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> ReadiumInternal.swiftmodule
+2026-10-25T01:09:59.3391510Z [[36mReadiumInternal[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> ReadiumInternal.swiftdoc
+2026-10-25T01:09:59.3392370Z [[36mReadiumInternal[0m] [1mCopy[0m arm64-apple-ios.abi.json -> ReadiumInternal.abi.json
+2026-10-25T01:09:59.3393200Z [[36mReadiumZIPFoundation[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> ReadiumZIPFoundation.swiftmodule
+2026-10-25T01:09:59.3394560Z [[36mReadiumZIPFoundation[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> ReadiumZIPFoundation.swiftdoc
+2026-10-25T01:09:59.3395710Z [[36mReadiumZIPFoundation[0m] [1mCopy[0m arm64-apple-ios.abi.json -> ReadiumZIPFoundation.abi.json
+2026-10-25T01:09:59.3396480Z [[36mMinizip[0m] [1mCompiling[0m ioapi.c
+2026-10-25T01:09:59.3397280Z [[36mMinizip[0m] [1mLinking[0m Minizip.o
+2026-10-25T01:09:59.3399980Z [[36mReadiumZIPFoundation[0m] [1mLinking[0m ReadiumZIPFoundation.o
+2026-10-25T01:09:59.3400860Z [[36mReadiumInternal[0m] [1mLinking[0m ReadiumInternal.o
+2026-10-25T01:09:59.3401380Z [[36mReadiumFuzi[0m] [1mLinking[0m ReadiumFuzi.o
+2026-10-25T01:09:59.3402780Z [[36mCryptoSwiftResources[0m] [1mLinking[0m CryptoSwiftResources.o
+2026-10-25T01:09:59.3403430Z [[36mReadiumZIPFoundation[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3404000Z [[36mReadiumInternal[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3404880Z [[36mReadiumZIPFoundation[0m] [1mRegisterExecutionPolicyException[0m ReadiumZIPFoundation.o
+2026-10-25T01:09:59.3405620Z [[36mReadiumInternal[0m] [1mRegisterExecutionPolicyException[0m ReadiumInternal.o
+2026-10-25T01:09:59.3406350Z [[36mReadiumFuzi[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3406960Z [[36mReadiumFuzi[0m] [1mRegisterExecutionPolicyException[0m ReadiumFuzi.o
+2026-10-25T01:09:59.3408050Z [[36mMinizip[0m] [1mRegisterExecutionPolicyException[0m Minizip.o
+2026-10-25T01:09:59.3408850Z [[36mCryptoSwiftResources[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3409410Z [[36mZip[0m] [1mLinking[0m Zip.o
+2026-10-25T01:09:59.3409920Z [[36mZip[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3410540Z [[36mCryptoSwiftResources[0m] [1mRegisterExecutionPolicyException[0m CryptoSwiftResources.o
+2026-10-25T01:09:59.3411650Z [[36mZip[0m] [1mRegisterExecutionPolicyException[0m Zip.o
+2026-10-25T01:09:59.3412250Z [[36mDifferenceKit[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> DifferenceKit.swiftmodule
+2026-10-25T01:09:59.3413270Z [[36mDifferenceKit[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> DifferenceKit.swiftdoc
+2026-10-25T01:09:59.3413960Z [[36mDifferenceKit[0m] [1mCopy[0m arm64-apple-ios.abi.json -> DifferenceKit.abi.json
+2026-10-25T01:09:59.3414680Z [[36mDifferenceKit[0m] [1mLinking[0m DifferenceKit.o
+2026-10-25T01:09:59.3415420Z [[36mDifferenceKit[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3416000Z [[36mDifferenceKit[0m] [1mRegisterExecutionPolicyException[0m DifferenceKit.o
+2026-10-25T01:09:59.3416760Z [[36mCryptoSwift[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> CryptoSwift.swiftmodule
+2026-10-25T01:09:59.3417360Z [[36mCryptoSwift[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> CryptoSwift.swiftdoc
+2026-10-25T01:09:59.3418130Z [[36mCryptoSwift[0m] [1mCopy[0m arm64-apple-ios.abi.json -> CryptoSwift.abi.json
+2026-10-25T01:09:59.3418960Z [[36mCryptoSwift[0m] [1mLinking[0m CryptoSwift.o
+2026-10-25T01:09:59.3420130Z [[36mCryptoSwift[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3420910Z [[36mCryptoSwift[0m] [1mRegisterExecutionPolicyException[0m CryptoSwift.o
+2026-10-25T01:09:59.3421660Z [[36mSwiftSoup[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> SwiftSoup.swiftmodule
+2026-10-25T01:09:59.3422420Z [[36mSwiftSoup[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> SwiftSoup.swiftdoc
+2026-10-25T01:09:59.3423050Z [[36mSwiftSoup[0m] [1mCopy[0m arm64-apple-ios.abi.json -> SwiftSoup.abi.json
+2026-10-25T01:09:59.3423570Z [[36mSwiftSoup[0m] [1mLinking[0m SwiftSoup.o
+2026-10-25T01:09:59.3424180Z [[36mSwiftSoup[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3424670Z [[36mSwiftSoup[0m] [1mRegisterExecutionPolicyException[0m SwiftSoup.o
+2026-10-25T01:09:59.3425360Z [[36mReadiumShared[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> ReadiumShared.swiftdoc
+2026-10-25T01:09:59.3426020Z [[36mReadiumShared[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> ReadiumShared.swiftmodule
+2026-10-25T01:09:59.3426800Z [[36mReadiumShared[0m] [1mCopy[0m arm64-apple-ios.abi.json -> ReadiumShared.abi.json
+2026-10-25T01:09:59.3427430Z [[36mReadiumShared[0m] [1mLinking[0m ReadiumShared.o
+2026-10-25T01:09:59.3428060Z [[36mReadiumShared[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3428730Z [[36mReadiumShared[0m] [1mRegisterExecutionPolicyException[0m ReadiumShared.o
+2026-10-25T01:09:59.3429600Z [[36mReadiumStreamer[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> ReadiumStreamer.swiftmodule
+2026-10-25T01:09:59.3430480Z [[36mReadiumStreamer[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> ReadiumStreamer.swiftdoc
+2026-10-25T01:09:59.3431700Z [[36mReadiumStreamer[0m] [1mCopy[0m arm64-apple-ios.abi.json -> ReadiumStreamer.abi.json
+2026-10-25T01:09:59.3432430Z [[36mReadiumStreamer[0m] [1mLinking[0m ReadiumStreamer.o
+2026-10-25T01:09:59.3432950Z [[36mReadiumStreamer[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3433640Z [[36mReadiumStreamer[0m] [1mRegisterExecutionPolicyException[0m ReadiumStreamer.o
+2026-10-25T01:09:59.3434350Z [[36mReadiumNavigator[0m] [1mCopy[0m arm64-apple-ios.swiftdoc -> ReadiumNavigator.swiftdoc
+2026-10-25T01:09:59.3435240Z [[36mReadiumNavigator[0m] [1mCopy[0m arm64-apple-ios.swiftmodule -> ReadiumNavigator.swiftmodule
+2026-10-25T01:09:59.3436040Z [[36mReadiumNavigator[0m] [1mCopy[0m arm64-apple-ios.abi.json -> ReadiumNavigator.abi.json
+2026-10-25T01:09:59.3436650Z [[36mReadiumNavigator[0m] [1mLinking[0m ReadiumNavigator.o
+2026-10-25T01:09:59.3437280Z [[36mModuReader[0m] [1mGenerate Asset Symbols[0m Assets.xcassets
+2026-10-25T01:09:59.3437910Z [[36mReadiumNavigator[0m] [1mExtract App Intents Metadata[0m
+2026-10-25T01:09:59.3438440Z [[36mReadiumNavigator[0m] [1mRegisterExecutionPolicyException[0m ReadiumNavigator.o
+2026-10-25T01:09:59.3439260Z [[36mModuReader[0m] [1mCopy[0m Readium_ReadiumStreamer.bundle -> Readium_ReadiumStreamer.bundle
+2026-10-25T01:09:59.3439980Z [[36mModuReader[0m] [1mCopy[0m Readium_ReadiumShared.bundle -> Readium_ReadiumShared.bundle
+2026-10-25T01:09:59.3440830Z [[36mModuReader[0m] [1mCopy[0m Readium_ReadiumNavigator.bundle -> Readium_ReadiumNavigator.bundle
+2026-10-25T01:09:59.3441910Z [[36mModuReader[0m] [1mCopy[0m ReadiumZIPFoundation_ReadiumZIPFoundation.bundle -> ReadiumZIPFoundation_ReadiumZIPFoundation.bundle
+2026-10-25T01:09:59.3442850Z [[36mModuReader[0m] [1mCopy[0m CryptoSwift_CryptoSwiftResources.bundle -> CryptoSwift_CryptoSwiftResources.bundle
+2026-10-25T01:09:59.3444520Z [36;1mnote: [0mEmplaced /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/InstallationBuildProductsLocation/Applications/ModuReader.app/AppIcon60x60@2x.png (in target 'ModuReader' from project 'ModuReader')
+2026-10-25T01:09:59.3447100Z [36;1mnote: [0mEmplaced /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/InstallationBuildProductsLocation/Applications/ModuReader.app/Assets.car (in target 'ModuReader' from project 'ModuReader')
+2026-10-25T01:09:59.3449300Z [36;1mnote: [0mEmplaced /Users/runner/Library/Developer/Xcode/DerivedData/ModuReader-fghbnawbvtmuavacogxoyeakcctj/Build/Intermediates.noindex/ArchiveIntermediates/ModuReader/InstallationBuildProductsLocation/Applications/ModuReader.app/AppIcon76x76@2x~ipad.png (in target 'ModuReader' from project 'ModuReader')
+2026-10-25T01:09:59.3450580Z [[36mModuReader[0m] [1mProcessing[0m Info.plist
+2026-10-25T01:09:59.3513670Z ##[warning]'OpenURLOptionsKey' was deprecated in iOS 26.0: Use UIScene lifecycle and equivalent properties on UISceneOpenURLOptions from a UIOpenURLContext in UIScene.ConnectionOptions.URLContexts instead.
+2026-10-25T01:09:59.3542260Z         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+2026-10-25T01:09:59.3542880Z                                 ^
+2026-10-25T01:09:59.3545270Z ##[warning]'url' was deprecated in iOS 26.0: Use UIScene lifecycle and UIScene.ConnectionOptions.URLContexts instead.
+2026-10-25T01:09:59.3546920Z         if let url = launchOptions?[.url] as? URL {
+2026-10-25T01:09:59.3547550Z                                      ^
+2026-10-25T01:09:59.3549030Z ##[warning]passing non-Sendable parameter 'block' to function expecting a '@Sendable' closure
+2026-10-25T01:09:59.3550420Z             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block)
+2026-10-25T01:09:59.3550940Z                                                                              ^
+2026-10-25T01:09:59.3552300Z ##[warning]passing non-Sendable parameter 'block' to function expecting a '@Sendable' closure
+2026-10-25T01:09:59.3554370Z             DispatchQueue.main.async(execute: block)
+2026-10-25T01:09:59.3554720Z                                               ^
+2026-10-25T01:09:59.3555940Z ##[warning]no calls to throwing functions occur within 'try' expression
+2026-10-25T01:09:59.3556940Z         try extractContent(fromXHTML: data).text
+2026-10-25T01:09:59.3557310Z         ^
+2026-10-25T01:09:59.3560190Z ##[error]invalid redeclaration of 'makeNavigator(publication:initialLocation:)'
+2026-10-25T01:09:59.3561310Z     private func makeNavigator(
+2026-10-25T01:09:59.3561630Z                  ^
+2026-10-25T01:09:59.3562550Z ##[error]invalid redeclaration of 'attachNavigator'
+2026-10-25T01:09:59.3563440Z     private func attachNavigator(_ navigator: EPUBNavigatorViewController) {
+2026-10-25T01:09:59.3563960Z                  ^
+2026-10-25T01:09:59.3565450Z ##[error]invalid redeclaration of 'detachNavigator()'
+2026-10-25T01:09:59.3566290Z     private func detachNavigator() {
+2026-10-25T01:09:59.3566540Z                  ^
+2026-10-25T01:09:59.3628900Z ##[error]invalid redeclaration of 'makePreferences'
+2026-10-25T01:09:59.3630290Z     private func makePreferences(_ settings: ReaderSettings) -> EPUBPreferences {
+2026-10-25T01:09:59.3630790Z                  ^
+2026-10-25T01:09:59.3631830Z ##[error]invalid redeclaration of 'nextPage()'
+2026-10-25T01:09:59.3632730Z     func nextPage() async -> Bool {
+2026-10-25T01:09:59.3633240Z          ^
+2026-10-25T01:09:59.3634670Z ##[error]invalid redeclaration of 'previousPage()'
+2026-10-25T01:09:59.3635580Z     func previousPage() async -> Bool {
+2026-10-25T01:09:59.3635800Z          ^
+2026-10-25T01:09:59.3636390Z ##[error]invalid redeclaration of 'nextChapter()'
+2026-10-25T01:09:59.3637180Z     func nextChapter() async {
+2026-10-25T01:09:59.3637400Z          ^
+2026-10-25T01:09:59.3638060Z ##[error]invalid redeclaration of 'previousChapter()'
+2026-10-25T01:09:59.3638850Z     func previousChapter() async {
+2026-10-25T01:09:59.3639120Z          ^
+2026-10-25T01:09:59.3639740Z ##[error]invalid redeclaration of 'navigableIndex(from:step:)'
+2026-10-25T01:09:59.3640500Z     private func navigableIndex(from index: Int, step: Int) -> Int? {
+2026-10-25T01:09:59.3640790Z                  ^
+2026-10-25T01:09:59.3641340Z ##[error]invalid redeclaration of 'goToChapter(at:)'
+2026-10-25T01:09:59.3642300Z     func goToChapter(at index: Int) async {
+2026-10-25T01:09:59.3643350Z          ^
+2026-10-25T01:09:59.3644060Z ##[error]invalid redeclaration of 'go(to:animated:)'
+2026-10-25T01:09:59.3644970Z     func go(to locator: Locator, animated: Bool) async {
+2026-10-25T01:09:59.3645370Z          ^
+2026-10-25T01:09:59.3646040Z ##[error]invalid redeclaration of 'visibleText()'
+2026-10-25T01:09:59.3646810Z     func visibleText() -> String? { nil }
+2026-10-25T01:09:59.3647090Z          ^
+2026-10-25T01:09:59.3647700Z ##[error]invalid redeclaration of 'search'
+2026-10-25T01:09:59.3648470Z     func search(_ query: String) async -> [SearchResult] {
+2026-10-25T01:09:59.3648730Z          ^
+2026-10-25T01:09:59.3649580Z ##[error]invalid redeclaration of 'makeSearchResult(from:fallback:)'
+2026-10-25T01:09:59.3650420Z     private func makeSearchResult(
+2026-10-25T01:09:59.3650760Z                  ^
+2026-10-25T01:09:59.3651760Z ##[error]invalid redeclaration of 'chapterIndex(for:)'
+2026-10-25T01:09:59.3653080Z     private func chapterIndex(for locator: ReadiumShared.Locator) -> Int {
+2026-10-25T01:09:59.3653540Z                  ^
+2026-10-25T01:09:59.3654370Z ##[error]invalid redeclaration of 'loadPositions(from:source:)'
+2026-10-25T01:09:59.3655190Z     private func loadPositions(
+2026-10-25T01:09:59.3655410Z                  ^
+2026-10-25T01:09:59.3656310Z ##[error]invalid redeclaration of 'rebuildChapterStarts()'
+2026-10-25T01:09:59.3657320Z     private func rebuildChapterStarts() async {
+2026-10-25T01:09:59.3657590Z                  ^
+2026-10-25T01:09:59.3658500Z ##[error]invalid redeclaration of 'closestPosition(to:)'
+2026-10-25T01:09:59.3659310Z     private func closestPosition(to progression: Double) -> ReadiumShared.Locator? {
+2026-10-25T01:09:59.3660030Z                  ^
+2026-10-25T01:09:59.3660590Z ##[error]invalid redeclaration of 'makeChapters(from:)'
+2026-10-25T01:09:59.3661410Z     private func makeChapters(from publication: ReadiumShared.Publication) async -> [Chapter] {
+2026-10-25T01:09:59.3661980Z                  ^
+2026-10-25T01:09:59.3662640Z ##[error]invalid redeclaration of 'normalizedHref'
+2026-10-25T01:09:59.3663430Z     private func normalizedHref(_ raw: String) -> String {
+2026-10-25T01:09:59.3663720Z                  ^
+2026-10-25T01:09:59.3664280Z ##[error]invalid redeclaration of 'flattenTOC(_:level:)'
+2026-10-25T01:09:59.3664970Z     private func flattenTOC(
+2026-10-25T01:09:59.3665290Z                  ^
+2026-10-25T01:09:59.3665910Z ##[error]invalid redeclaration of 'syncChapterIndex()'
+2026-10-25T01:09:59.3666540Z     private func syncChapterIndex() {
+2026-10-25T01:09:59.3666760Z                  ^
+2026-10-25T01:09:59.3667300Z ##[error]invalid redeclaration of 'highlightGroup'
+2026-10-25T01:09:59.3667970Z     private static let highlightGroup = "modu.highlight"
+2026-10-25T01:09:59.3668210Z                        ^
+2026-10-25T01:09:59.3669640Z ##[warning]instance method 'navigator(_:shouldNavigateToLink:)' nearly matches defaulted requirement 'navigator(_:shouldNavigateToLink:)' of protocol 'VisualNavigatorDelegate'
+2026-10-25T01:09:59.3670610Z     func navigator(
+2026-10-25T01:09:59.3670770Z          ^
+2026-10-25T01:09:59.3672380Z ##[warning]instance method 'navigator(_:shouldNavigateToNoteAt:content:referrer:)' nearly matches defaulted requirement 'navigator(_:shouldNavigateToNoteAt:content:referrer:)' of protocol 'NavigatorDelegate'
+2026-10-25T01:09:59.3673690Z     func navigator(
+2026-10-25T01:09:59.3673870Z          ^
+2026-10-25T01:09:59.3674910Z ##[warning]immutable value 'target' was never used; consider replacing with '_' or removing it
+2026-10-25T01:09:59.3675760Z            let target = locator.locations.totalProgression,
+2026-10-25T01:09:59.3676180Z            ~~~~^~~~~~
+2026-10-25T01:09:59.3676980Z ##[error]thrown expression type 'any Error' cannot be converted to error type 'Never'
+2026-10-25T01:09:59.3677700Z         let navigator = try EPUBNavigatorViewController(
+2026-10-25T01:09:59.3677970Z                             ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+2026-10-25T01:09:59.3679700Z ##[warning]'traitCollectionDidChange' was deprecated in iOS 17.0: Use the trait change registration APIs declared in the UITraitChangeObservable protocol
+2026-10-25T01:09:59.3680800Z         super.traitCollectionDidChange(previousTraitCollection)
+2026-10-25T01:09:59.3681130Z               ^
+2026-10-25T01:09:59.3852520Z ##[error]Process completed with exit code 65.
+2026-10-25T01:09:59.4236070Z Post job cleanup.
+2026-10-25T01:09:59.9504200Z [command]/opt/homebrew/bin/git version
+2026-10-25T01:09:59.9760420Z git version 2.56.0
+2026-10-25T01:09:59.9787670Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/e425f24b-bb3f-4030-b838-87de66518a39/.gitconfig'
+2026-10-25T01:09:59.9796500Z Temporarily overriding HOME='/Users/runner/work/_temp/e425f24b-bb3f-4030-b838-87de66518a39' before making global git config changes
+2026-10-25T01:09:59.9798280Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-25T01:09:59.9800250Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/modu-reader/modu-reader
+2026-10-25T01:09:59.9935520Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-25T01:10:00.0014950Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-25T01:10:00.1594040Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-25T01:10:00.1658510Z http.https://github.com/.extraheader
+2026-10-25T01:10:00.1667480Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-25T01:10:00.1761310Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-25T01:10:00.3193920Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-25T01:10:00.3310530Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-25T01:10:00.5338530Z Cleaning up orphan processes
+2026-10-25T01:10:01.1340260Z Terminate orphan process: pid (8005) (ibtoold)
+2026-10-25T01:10:01.2037260Z Terminate orphan process: pid (8003) (ibtoold)
+2026-10-25T01:10:03.5052020Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
