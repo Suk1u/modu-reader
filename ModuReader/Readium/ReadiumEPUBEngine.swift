@@ -852,54 +852,420 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     // MARK: - 高亮标记
 
     private static let highlightGroup = "modu.highlight"
-    private static let noteHandlerName = "moduNote"
+    private func makeNavigator(
+        publication: ReadiumShared.Publication,
+        initialLocation: ReadiumShared.Locator?
+    ) throws -> EPUBNavigatorViewController {
+        let navigator = try EPUBNavigatorViewController(
+            publication: publication,
+            initialLocation: initialLocation,
+            config: EPUBNavigatorViewController.Configuration(
+                preferences: makePreferences(settings),
+                // 选中文字后弹出「高亮标记」
+                editingActions: EditingAction.defaultActions + [
+                    EditingAction(
+                        title: "高亮标记",
+                        action: #selector(highlightSelectionAction)
+                    ),
+                ],
+                // 滚动模式下禁用翻页手势。
+                // 纵向滚动时手指常带横向位移，会误触发翻页，产生跳页感。
+                // 该开关只在 scroll 生效（源码里是 `disable && settings.scroll`），
+                // 因此可以无条件设为 true，不影响分页模式的翻页。
+                disablePageTurnsWhileScrolling: true,
+                // 取消 Readium 默认的上下内容内边距（compact 34pt / regular 62pt）。
+                contentInset: [
+                    .compact: (top: 0, bottom: 0),
+                    .regular: (top: 0, bottom: 0),
+                ]
+            )
+        )
+        navigator.delegate = self
+        return navigator
+    }
+
+    private func attachNavigator(_ navigator: EPUBNavigatorViewController) {
+        addChild(navigator)
+        navigator.view.frame = view.bounds
+        navigator.view.autoresizingMask = [
+            UIView.AutoresizingMask.flexibleWidth,
+            UIView.AutoresizingMask.flexibleHeight,
+        ]
+        view.addSubview(navigator.view)
+        navigator.didMove(toParent: self)
+    }
+
+    private func detachNavigator() {
+        guard let navigator else { return }
+        navigator.willMove(toParent: nil)
+        navigator.view.removeFromSuperview()
+        navigator.removeFromParent()
+        navigator.delegate = nil
+        self.navigator = nil
+    }
+
+    /// 把应用的阅读设置映射为 Readium 偏好。
+    ///
+    /// 单位换算说明（Readium 用相对单位，我们用 pt / 倍数）：
+    /// - `fontSize` 是相对出版方默认字号的倍数（1.0 = 100%）
+    /// - `lineHeight` 是行高倍数
+    /// - `paragraphSpacing` / `paragraphIndent` / `letterSpacing` 单位是 em
+    /// - `pageMargins` 是相对默认页边距的倍数
+    /// - `publisherStyles = true` 保留出版方 CSS（内嵌字体、特效排版）
+    private func makePreferences(_ settings: ReaderSettings) -> EPUBPreferences {
+        let baseFontSize = 16.0
+
+        let theme: Theme? = {
+            switch settings.theme.name {
+            case ReaderTheme.night.name, ReaderTheme.pureBlack.name: return .dark
+            case ReaderTheme.sepia.name: return .sepia
+            default: return .light
+            }
+        }()
+
+        return EPUBPreferences(
+            backgroundColor: ReadiumNavigator.Color(hex: settings.theme.background.hexString),
+            fontFamily: settings.useBookFont ? nil : settings.fontFamily.readiumFontFamily,
+            fontSize: settings.useBookFont ? nil : Double(settings.fontSize) / baseFontSize,
+            lineHeight: settings.lineHeightMultiple,
+            pageMargins: Double(settings.horizontalPadding) / 24.0,
+            paragraphIndent: Double(settings.firstLineIndent),
+            paragraphSpacing: Double(settings.paragraphSpacing) / Double(max(1, settings.fontSize)),
+            publisherStyles: settings.useBookFont,
+            scroll: settings.readingMode == .scroll,
+            textColor: ReadiumNavigator.Color(hex: settings.theme.text.hexString),
+            theme: theme
+        )
+    }
+
+    // MARK: - Navigation
+
+    func nextPage() async -> Bool {
+        guard let navigator else { return false }
+        let moved = await navigator.goForward()
+        if moved { syncChapterIndex(); onLocatorChange?(currentLocator) }
+        return moved
+    }
+
+    func previousPage() async -> Bool {
+        guard let navigator else { return false }
+        let moved = await navigator.goBackward()
+        if moved { syncChapterIndex(); onLocatorChange?(currentLocator) }
+        return moved
+    }
+
+    func nextChapter() async {
+        guard let target = navigableIndex(from: currentChapterIndex, step: 1) else { return }
+        await goToChapter(at: target)
+    }
+
+    func previousChapter() async {
+        guard let target = navigableIndex(from: currentChapterIndex, step: -1) else { return }
+        await goToChapter(at: target)
+    }
+
+    /// 下一个可跳转的章节序号。
+    ///
+    /// 目录里的分组节点（有子项、自身不占独立正文）不参与前后翻章，
+    /// 否则「下一章」会停在原地。
+    private func navigableIndex(from index: Int, step: Int) -> Int? {
+        var candidate = index + step
+        while chapters.indices.contains(candidate) {
+            if !chapters[candidate].isGroup {
+                return candidate
+            }
+            candidate += step
+        }
+        return nil
+    }
+
+    func goToChapter(at index: Int) async {
+        guard chapters.indices.contains(index) else { return }
+
+        // 合并版：章节是目录条目（带锚点）
+        if tocLinks.indices.contains(index) {
+            _ = await navigator?.go(to: tocLinks[index])
+        } else if let publication, publication.readingOrder.indices.contains(index) {
+            _ = await navigator?.go(to: publication.readingOrder[index])
+        }
+
+        syncChapterIndex()
+        onLocatorChange?(currentLocator)
+    }
+
+    func go(to locator: Locator, animated: Bool) async {
+        // 目录条目（合并版的锚点）优先按 Link 跳转
+        if !locator.href.isEmpty,
+           let link = tocLinks.first(where: { $0.href == locator.href }) {
+            _ = await navigator?.go(to: link)
+            syncChapterIndex()
+            onLocatorChange?(currentLocator)
+            return
+        }
+
+        // 只有总进度（进度条拖动）时，需要位置列表才能定位
+        if locator.href.isEmpty,
+           let target = locator.locations.totalProgression,
+           positions.isEmpty,
+           let publication {
+            positions = await loadPositions(from: publication, source: source)
+            totalPositions = positions.count
+        }
+
+        guard let readium = readiumLocator(from: locator) else { return }
+        _ = await navigator?.go(to: readium)
+        syncChapterIndex()
+        onLocatorChange?(currentLocator)
+    }
+
+    func visibleText() -> String? { nil }
+
+    func search(_ query: String) async -> [SearchResult] {
+        guard let publication else { return [] }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        switch await publication.search(query: trimmed) {
+        case .failure(let error):
+            Diagnostics.log("ReadiumEPUB: 搜索不可用 — \(error)")
+            return []
+
+        case .success(let iterator):
+            var results: [SearchResult] = []
+            // 上限保护：整本命中几千条时，列表也会卡
+            while !Task.isCancelled, results.count < 200 {
+                switch await iterator.next() {
+                case .failure:
+                    return results
+                case .success(let collection):
+                    guard let collection else { return results }
+                    for locator in collection.locators {
+                        results.append(makeSearchResult(from: locator, fallback: trimmed))
+                    }
+                }
+            }
+            Diagnostics.log("ReadiumEPUB: 搜索「\(trimmed)」命中 \(results.count) 条")
+            return results
+        }
+    }
+
+    private func makeSearchResult(
+        from locator: ReadiumShared.Locator,
+        fallback: String
+    ) -> SearchResult {
+        let index = chapterIndex(for: locator)
+        let title = chapters.indices.contains(index) ? chapters[index].title : ""
+        let highlight = locator.text.highlight?.isEmpty == false
+            ? locator.text.highlight!
+            : fallback
+
+        return SearchResult(
+            chapterIndex: index,
+            chapterTitle: title,
+            charOffset: 0,
+            context: (locator.text.before ?? "") + highlight + (locator.text.after ?? ""),
+            matchedText: highlight,
+            href: locator.href.string,
+            progression: locator.locations.progression
+        )
+    }
+
+    /// 搜索结果落在哪一章。
+    private func chapterIndex(for locator: ReadiumShared.Locator) -> Int {
+        if !chapterStarts.isEmpty, let total = locator.locations.totalProgression {
+            var index = 0
+            for (i, start) in chapterStarts.enumerated() where start <= total + 1e-9 {
+                index = i
+            }
+            return index
+        }
+        let key = normalizedHref(locator.href.string)
+        return chapterHrefs.firstIndex(of: key) ?? 0
+    }
+
+    // MARK: - Positions
+
+    private func loadPositions(
+        from publication: ReadiumShared.Publication,
+        source: Source
+    ) async -> [ReadiumShared.Locator] {
+        if let cached = positionsCache[source] {
+            return cached
+        }
+        if case .success(let list) = await publication.positions() {
+            positionsCache[source] = list
+            return list
+        }
+        return []
+    }
+
+    /// 重新计算每章的起始进度（需要位置列表已就绪）。
+    private func rebuildChapterStarts() async {
+        guard let publication, !tocLinks.isEmpty else { return }
+
+        var starts: [Double] = []
+        starts.reserveCapacity(tocLinks.count)
+        for link in tocLinks {
+            let located = await publication.locate(link)
+            let raw = located?.locations.totalProgression
+                ?? (Double(starts.count) / Double(max(1, tocLinks.count)))
+            starts.append(max(raw, starts.last ?? 0))
+        }
+        chapterStarts = starts
+    }
+
+    /// 按全书进度找最接近的位置。
+    private func closestPosition(to progression: Double) -> ReadiumShared.Locator? {
+        guard !positions.isEmpty else { return nil }
+        let target = max(0, min(1, progression))
+        let index = Int((target * Double(positions.count - 1)).rounded())
+        return positions[max(0, min(positions.count - 1, index))]
+    }
+
+    // MARK: - Chapter mapping
+
+    /// 由 publication 生成章节列表。
+    ///
+    /// **优先用目录**，而不是 readingOrder：
+    /// - 目录的标题是原书给的，spine 链接往往没有 title，只能退化成「第 N 章」
+    /// - 目录的顺序才是阅读顺序，spine 里常混着封面 / 书名页 / 版权页
+    /// - 目录的层级（卷 → 章）要保留给目录面板
+    private func makeChapters(from publication: ReadiumShared.Publication) async -> [Chapter] {
+        var entries: [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] = []
+        if case .success(let links) = await publication.tableOfContents() {
+            entries = flattenTOC(links, level: 0)
+        }
+
+        if entries.count > 1 {
+            var result: [Chapter] = []
+            var links: [ReadiumShared.Link] = []
+            var hrefs: [String] = []
+            var starts: [Double] = []
+
+            // 合并版只有一个资源，只能靠全书进度区分章节；
+            // 原书仍按 href 判断当前章，但起始进度两处都要用（页码换算）。
+            let useProgression = publication.readingOrder.count == 1
+            syncByProgression = useProgression
+
+            for (index, entry) in entries.enumerated() {
+                let title = entry.link.title.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? "第 \(index + 1) 章"
+
+                result.append(
+                    Chapter(
+                        id: index,
+                        title: title,
+                        filePath: entry.link.href,
+                        globalStart: index,
+                        characterCount: 1,
+                        level: entry.level,
+                        isGroup: entry.isGroup
+                    )
+                )
+                links.append(entry.link)
+                hrefs.append(normalizedHref(entry.link.href))
+
+                let located = await publication.locate(entry.link)
+                let raw = located?.locations.totalProgression
+                    ?? (Double(index) / Double(max(1, entries.count)))
+                // 位置必须单调不减，否则按进度反查章节会错位
+                starts.append(max(raw, starts.last ?? 0))
+            }
+
+            chapterStarts = starts
+            tocLinks = links
+            chapterHrefs = hrefs
+            return result
+        }
+
+        // 目录不可用：退回按 readingOrder 排列。
+        chapterStarts = []
+        tocLinks = []
+        syncByProgression = false
+        chapterHrefs = publication.readingOrder.map { normalizedHref($0.anyURL.string) }
+
+        var globalStart = 0
+        return publication.readingOrder.enumerated().map { index, link in
+            let chapter = Chapter(
+                id: index,
+                title: link.title ?? "第 \(index + 1) 章",
+                filePath: link.anyURL.string,
+                globalStart: globalStart,
+                characterCount: 1
+            )
+            globalStart += 1
+            return chapter
+        }
+    }
+
+    /// 归一化 href：去掉片段、解码百分号、去掉 `./` 与开头的 `/`。
+    ///
+    /// 目录里的 `ch1.xhtml#sec2` 与 readingOrder / 当前定位里的
+    /// `ch1.xhtml` 必须能对上，否则标题会全部掉进「第 N 章」。
+    private func normalizedHref(_ raw: String) -> String {
+        var value = raw
+        if let hash = value.firstIndex(of: "#") {
+            value = String(value[..<hash])
+        }
+        value = value.removingPercentEncoding ?? value
+        while value.hasPrefix("./") {
+            value.removeFirst(2)
+        }
+        while value.hasPrefix("/") {
+            value.removeFirst()
+        }
+        return value
+    }
+
+    /// 深度优先展平目录树，保留层级并为有子项的节点打上分组标记。
+    private func flattenTOC(
+        _ links: [ReadiumShared.Link],
+        level: Int
+    ) -> [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] {
+        var result: [(link: ReadiumShared.Link, level: Int, isGroup: Bool)] = []
+        for link in links {
+            result.append((link: link, level: level, isGroup: !link.children.isEmpty))
+            if !link.children.isEmpty {
+                result.append(contentsOf: flattenTOC(link.children, level: level + 1))
+            }
+        }
+        return result
+    }
+
+    /// 同步当前章节序号。
+    ///
+    /// 合并版的所有章节共用一个 href，无法按 href 区分，
+    /// 因此改用「章节起始进度」做二分查找。
+    private func syncChapterIndex() {
+        if syncByProgression, !chapterStarts.isEmpty {
+            let progression = navigator?.currentLocation?
+                .locations.totalProgression ?? 0
+            var index = 0
+            for (i, start) in chapterStarts.enumerated() where start <= progression + 1e-9 {
+                index = i
+            }
+            // 分组节点与其首个子项起点相同，取更深的那一层
+            while index + 1 < chapterStarts.count,
+                  abs(chapterStarts[index + 1] - chapterStarts[index]) < 1e-9,
+                  chapters.indices.contains(index + 1) {
+                index += 1
+            }
+            currentChapterIndex = index
+            return
+        }
+
+        guard let href = navigator?.currentLocation?.href.string else { return }
+        let key = normalizedHref(href)
+        if let index = chapterHrefs.firstIndex(of: key) {
+            currentChapterIndex = index
+        }
+    }
+
+    // MARK: - 高亮标记
+
+    private static let highlightGroup = "modu.highlight"
 
     /// 捕获阶段拦截「注」的点击：阻止跳转，并把注释正文与点击坐标送回。
-    private static let noteScript = #"""
-    (function(){
-      if (window.__moduNoteInstalled) { return; }
-      window.__moduNoteInstalled = true;
-
-      document.addEventListener('click', function(event){
-        var element = event.target;
-        while (element && element !== document.body) {
-          if (element.tagName === 'A') {
-            var type = element.getAttribute('epub:type') || '';
-            if (type.indexOf('noteref') >= 0) {
-              event.preventDefault();
-              event.stopPropagation();
-              event.stopImmediatePropagation();
-
-              var href = element.getAttribute('href') || '';
-              var hashIndex = href.indexOf('#');
-              var identifier = hashIndex >= 0 ? href.substring(hashIndex + 1) : '';
-              var text = '';
-              if (identifier) {
-                var target = document.getElementById(identifier);
-                if (!target) {
-                  try { target = document.getElementById(decodeURIComponent(identifier)); } catch (e) {}
-                }
-                if (target) {
-                  text = (target.innerText || target.textContent || '').trim();
-                }
-              }
-              if (window.webkit && window.webkit.messageHandlers.moduNote) {
-                window.webkit.messageHandlers.moduNote.postMessage({
-                  text: text,
-                  referrer: (element.innerText || '').trim(),
-                  x: event.clientX,
-                  y: event.clientY
-                });
-              }
-              return;
-            }
-          }
-          element = element.parentElement;
-        }
-      }, true);
-    })();
-    """#
-
     @objc private func highlightSelectionAction() {
         guard let selection = navigator?.currentSelection else { return }
         navigator?.clearSelection()
@@ -914,10 +1280,8 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private func renderHighlights() {
         guard let navigator, let publication else { return }
 
-        let tint = UIColor(settings.highlightRGB.color)
-        let style: Decoration.Style = settings.usesUnderlineHighlight
-            ? .underline(tint: tint)
-            : .highlight(tint: tint)
+        let defaultTint = settings.highlightRGB
+        let defaultUnderline = settings.usesUnderlineHighlight
         var decorations: [Decoration] = []
         decorations.reserveCapacity(highlightMarks.count)
 
@@ -928,6 +1292,13 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             }) else { continue }
 
             guard let readium = decoratorLocator(for: mark.locator) else { continue }
+
+            let rgb = mark.tintHex.flatMap { RGBColor(hex: $0) } ?? defaultTint
+            let tint = UIColor(rgb.color)
+            let style: Decoration.Style = (mark.underline || defaultUnderline)
+                ? .underline(tint: tint)
+                : .highlight(tint: tint)
+
             decorations.append(
                 Decoration(
                     id: mark.id.uuidString,
@@ -966,23 +1337,36 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         )
     }
 
-    /// 把当前落点滚到屏幕中央。
-    func centerCurrentPosition() {
+    /// 把指定落点滚到屏幕中央。
+    ///
+    /// 合并版是单个资源，用「内容高度 × 进度」直接算出目标偏移，
+    /// 比自己相对 Readium 的落点再挪半屏可靠。
+    func centerCurrentPosition(at locator: Locator) {
+        guard source == .merged else { return }
+
         Task { [weak self] in
-            try? await Task<Never, Never>.sleep(for: .milliseconds(380))
-            guard let self, self.source == .merged,
-                  let webView = Self.visibleWebView(in: self.view) else { return }
+            try? await Task<Never, Never>.sleep(for: .milliseconds(320))
+            guard let self, let webView = Self.visibleWebView(in: self.view) else { return }
 
             let scroll = webView.scrollView
+            let progress = locator.locations.totalProgression
+                ?? locator.locations.progression
+                ?? 0
             let insetTop = scroll.adjustedContentInset.top
-            let insetBottom = scroll.adjustedContentInset.bottom
-            let maxY = max(
-                -insetTop,
-                scroll.contentSize.height + insetBottom - scroll.bounds.height
+            let target = scroll.contentSize.height * min(max(progress, 0), 1)
+                - scroll.bounds.height / 2
+            let lower = -insetTop
+            let upper = max(
+                lower,
+                scroll.contentSize.height + scroll.adjustedContentInset.bottom
+                    - scroll.bounds.height
             )
-            let target = scroll.contentOffset.y - scroll.bounds.height / 2
+
             scroll.setContentOffset(
-                CGPoint(x: scroll.contentOffset.x, y: min(max(target, -insetTop), maxY)),
+                CGPoint(
+                    x: scroll.contentOffset.x,
+                    y: min(max(target, lower), upper)
+                ),
                 animated: true
             )
         }
@@ -1133,8 +1517,70 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         Diagnostics.log("ReadiumEPUB: navigator error \(error.localizedDescription)")
     }
 
+    /// 脚注锚点前缀。合并器把 `<a epub:type="noteref">` 的 href
+    /// 改写成 `#modu-note-<id>`，这里据此在跳转前拦截。
+    private static let noteAnchorPrefix = "modu-note-"
+
+    func navigator(
+        _ navigator: EPUBNavigatorViewController,
+        shouldNavigateToLink link: ReadiumShared.Link
+    ) -> Bool {
+        guard let anchor = Self.noteAnchorID(in: link.href) else { return true }
+
+        // 无论哪种显示方式都不跳转；气泡模式再去取内容
+        if settings.noteDisplayMode == .popover {
+            presentNote(forAnchor: anchor)
+        }
+        return false
+    }
+
+    private static func noteAnchorID(in href: String) -> String? {
+        guard let range = href.range(of: "#" + noteAnchorPrefix) else { return nil }
+        return String(href[range.upperBound...])
+    }
+
+    private func presentNote(forAnchor anchor: String) {
+        Task { [weak self] in
+            guard let self, let webView = Self.visibleWebView(in: self.view) else { return }
+
+            let literal = (try? JSONEncoder().encode(anchor))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+            let script = """
+            (function(){
+              var el = document.getElementById(\(literal));
+              if (!el) { return ""; }
+              var r = el.getBoundingClientRect();
+              return JSON.stringify({
+                text: (el.innerText || el.textContent || '').trim(),
+                x: r.left + r.width / 2,
+                y: r.top + r.height / 2
+              });
+            })()
+            """
+
+            guard let value = try? await webView.evaluateJavaScript(script),
+                  let raw = value as? String,
+                  let data = raw.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
+
+            let text = (object["text"] as? String) ?? ""
+            guard !text.isEmpty else { return }
+
+            self.presentNote(
+                content: text,
+                referrer: "",
+                anchor: CGPoint(
+                    x: (object["x"] as? Double) ?? Double(self.view.bounds.midX),
+                    y: (object["y"] as? Double) ?? Double(self.view.bounds.midY)
+                ),
+                in: webView
+            )
+        }
+    }
+
     /// 脚注点击。永远不跳转 —— 注释正文就在段落下方，
-    /// 跳过去反而打断阅读。气泡模式由注入脚本负责弹出。
+    /// 跳过去反而打断阅读。
     func navigator(
         _ navigator: EPUBNavigatorViewController,
         shouldNavigateToNoteAt link: ReadiumShared.Link,
@@ -1142,24 +1588,6 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         referrer: String
     ) -> Bool {
         false
-    }
-
-    /// 注入脚注拦截脚本。
-    ///
-    /// 放在捕获阶段并 stopImmediatePropagation，确保 Readium 自己的
-    /// 链接处理拿不到这次点击，从根上杜绝「点了还是跳走」。
-    func navigator(
-        _ navigator: EPUBNavigatorViewController,
-        setupUserScripts userContentController: WKUserContentController
-    ) {
-        userContentController.add(self, name: Self.noteHandlerName)
-        userContentController.addUserScript(
-            WKUserScript(
-                source: Self.noteScript,
-                injectionTime: .atDocumentEnd,
-                forMainFrameOnly: false
-            )
-        )
     }
 
     private func presentNote(
@@ -1203,44 +1631,9 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         let width = view.bounds.width
         guard width > 0 else { return }
 
-        let ratio = point.x / width
-        let zone = CGFloat(settings.tapZoneRatio)
-        if ratio < zone {
-            onInteraction?(.tapLeft)
-        } else if ratio > 1 - zone {
-            onInteraction?(.tapRight)
-        } else {
-            onInteraction?(.tapCenter)
-        }
-    }
-}
-
-// MARK: - 脚注脚本消息
-
-extension ReadiumEPUBEngine: @preconcurrency WKScriptMessageHandler {
-    func userContentController(
-        _ controller: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard message.name == Self.noteHandlerName,
-              let body = message.body as? [String: Any] else { return }
-
-        // 内联模式下脚本已经把点击吃掉了，这里只需不弹气泡
-        guard settings.noteDisplayMode == .popover else { return }
-
-        let text = (body["text"] as? String) ?? ""
-        let referrer = (body["referrer"] as? String) ?? ""
-        let anchor = CGPoint(
-            x: (body["x"] as? Double) ?? Double(view.bounds.midX),
-            y: (body["y"] as? Double) ?? Double(view.bounds.midY)
-        )
-
-        presentNote(
-            content: text,
-            referrer: referrer,
-            anchor: anchor,
-            in: message.webView
-        )
+        // 全屏任意位置都切换工具栏显隐（翻页靠滑动）
+        _ = width
+        onInteraction?(.tapCenter)
     }
 }
 

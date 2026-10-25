@@ -17,6 +17,9 @@ struct HighlightItem: Identifiable, Hashable {
     let createdAt: Date
     /// 被标记的文字，列表里直接显示它。
     let excerpt: String
+    /// 该条高亮的颜色与样式。
+    let tintHex: String?
+    let underline: Bool
     /// 原始落点。按它能精确跳回高亮处，而不是最近的页边界。
     let locator: Locator?
 }
@@ -103,6 +106,9 @@ final class ReaderSession {
 
     /// 当前页是否已加书签。
     private(set) var isBookmarked: Bool = false
+
+    /// 刚选中、等待选择颜色的高亮。
+    private(set) var pendingHighlight: Locator?
 
     /// 跳转来源栈（撤销用）。
     private(set) var jumpBackStack: [Double] = []
@@ -270,6 +276,29 @@ final class ReaderSession {
         seek(toProgression: progression)
     }
 
+    /// 从新到旧的跳转历史，供长按菜单展示。
+    struct JumpEntry: Identifiable {
+        let id: Int
+        let index: Int
+        let page: Int
+    }
+
+    var jumpEntries: [JumpEntry] {
+        jumpBackStack.enumerated().reversed().map { index, progression in
+            JumpEntry(id: index, index: index, page: pageNumber(atProgression: progression))
+        }
+    }
+
+    /// 跳到历史里的某一项，并把之后的历史丢弃。
+    func jump(to index: Int) {
+        guard jumpBackStack.indices.contains(index) else { return }
+        let target = jumpBackStack[index]
+        jumpBackStack.removeSubrange(index...)
+        jumpForwardStack.append(engine.totalProgression)
+        jumpExpiry = Date().addingTimeInterval(60)
+        seek(toProgression: target)
+    }
+
     /// 撤销上一次跳转。
     func returnToJumpOrigin() {
         guard let origin = jumpBackStack.popLast() else { return }
@@ -300,7 +329,7 @@ final class ReaderSession {
             await engine.go(to: locator, animated: false)
             syncChapterState()
             if center {
-                engine.centerCurrentPosition()
+                engine.centerCurrentPosition(at: locator)
             }
         }
     }
@@ -390,16 +419,29 @@ final class ReaderSession {
 
     // MARK: - 高亮标记
 
-    /// 把用户选中的文字保存为高亮。
+    /// 选中文字后先挂起，等用户选完颜色 / 下划线再落库。
     private func addHighlight(at locator: Locator) {
-        guard let data = try? JSONEncoder().encode(locator) else { return }
+        pendingHighlight = locator
+    }
+
+    func cancelPendingHighlight() {
+        pendingHighlight = nil
+    }
+
+    /// 用选定样式保存挂起的高亮。
+    func commitHighlight(tintHex: String?, underline: Bool) {
+        guard let locator = pendingHighlight,
+              let data = try? JSONEncoder().encode(locator) else { return }
+        pendingHighlight = nil
 
         let progression = locator.locations.totalProgression ?? engine.totalProgression
         let entity = HighlightEntity(
             locatorJSON: data,
             totalProgression: progression,
             chapterTitle: chapterTitle(atProgression: progression),
-            excerpt: locator.text?.highlight ?? ""
+            excerpt: locator.text?.highlight ?? "",
+            tintHex: tintHex,
+            underline: underline
         )
         entity.book = bookEntity ?? fetchBookEntity()
         modelContext.insert(entity)
@@ -433,6 +475,8 @@ final class ReaderSession {
                 chapterTitle: $0.chapterTitle,
                 createdAt: $0.createdAt,
                 excerpt: $0.excerpt,
+                tintHex: $0.tintHex,
+                underline: $0.underline ?? false,
                 locator: $0.locator
             )
         }
@@ -440,7 +484,12 @@ final class ReaderSession {
         // 交给渲染引擎画到正文上
         let marks: [HighlightMark] = entities.compactMap { entity in
             guard let locator = entity.locator else { return nil }
-            return HighlightMark(id: entity.id, locator: locator)
+            return HighlightMark(
+                id: entity.id,
+                locator: locator,
+                tintHex: entity.tintHex,
+                underline: entity.underline ?? false
+            )
         }
         engine.applyHighlights(marks)
     }

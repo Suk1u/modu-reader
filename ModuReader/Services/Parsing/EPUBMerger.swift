@@ -45,7 +45,8 @@ enum EPUBMerger {
     /// - v5：滚动模式强制折行（white-space / word-break 覆盖）
     /// - v6：脚注引用「注」去掉可点击性（v7 起改由阅读器处理，不再改写）
     /// - v7：恢复脚注链接，交给导航器识别与显示
-    static let version = 7
+    /// - v8：脚注锚点加 `modu-note-` 前缀，阅读器据此拦截点击
+    static let version = 8
 
     /// 合并结果统计。
     struct Summary {
@@ -236,6 +237,7 @@ enum EPUBMerger {
                 chapterIDs: chapterIDs,
                 duplicatedIDs: duplicatedIDs
             )
+            body = markNoteReferences(in: body)
             body = rewriteInlineStyleURLs(
                 in: body,
                 fromDirectory: source.directory,
@@ -691,6 +693,63 @@ enum EPUBMerger {
     ///
     /// 合并后这些「注」链接经常跳到错误位置：锚点经过改写、且脚注正文
     /// 本身就在段落下方。让链接失效，读者直接读下方注释即可。
+    /// 给脚注引用的锚点加 `modu-note-` 前缀。
+    ///
+    /// 合并后的文档交给 WebView 后，阅读器只能拿到链接的 href，
+    /// 拿不到元素属性。用前缀把「这是一个注」编码进 href，
+    /// 阅读器就能在跳转前拦下来。
+    private static func markNoteReferences(in html: String) -> String {
+        var edits: [(range: Range<String.Index>, replacement: String)] = []
+        var searchStart = html.startIndex
+
+        while let tagStart = html.range(
+            of: "<a",
+            options: .caseInsensitive,
+            range: searchStart..<html.endIndex
+        ) {
+            guard let tagEnd = html.range(of: ">", range: tagStart.upperBound..<html.endIndex) else {
+                break
+            }
+            let tag = String(html[tagStart.lowerBound..<tagEnd.upperBound])
+
+            if tag.lowercased().contains("noteref"),
+               let marked = prefixingNoteHref(in: tag) {
+                edits.append((tagStart.lowerBound..<tagEnd.upperBound, marked))
+            }
+            searchStart = tagEnd.upperBound
+        }
+
+        guard !edits.isEmpty else { return html }
+
+        var result = html
+        for edit in edits.reversed() {
+            result.replaceSubrange(edit.range, with: edit.replacement)
+        }
+        return result
+    }
+
+    /// 把 `href="#x"` 改成 `href="#modu-note-x"`。已经带前缀的不重复加。
+    private static func prefixingNoteHref(in tag: String) -> String? {
+        guard let href = tag.range(of: "href", options: .caseInsensitive) else { return nil }
+
+        var index = href.upperBound
+        while index < tag.endIndex, tag[index] == " " { index = tag.index(after: index) }
+        guard index < tag.endIndex, tag[index] == "=" else { return nil }
+        index = tag.index(after: index)
+        while index < tag.endIndex, tag[index] == " " { index = tag.index(after: index) }
+        guard index < tag.endIndex, tag[index] == "\"" || tag[index] == "'" else { return nil }
+
+        let quote = tag[index]
+        let valueStart = tag.index(after: index)
+        guard let valueEnd = tag[valueStart...].firstIndex(of: quote) else { return nil }
+        let value = String(tag[valueStart..<valueEnd])
+
+        guard value.hasPrefix("#"), !value.hasPrefix("#modu-note-") else { return nil }
+        let replaced = "#modu-note-" + value.dropFirst()
+
+        return tag.replacingCharacters(in: valueStart..<valueEnd, with: replaced)
+    }
+
     /// 给**跨章重复**的 id 加前缀。
     ///
     /// 只改重复项：唯一 id 保持原样，出版方 CSS 里的 `#id` 选择器不受影响；

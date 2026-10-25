@@ -212,32 +212,54 @@ struct ReaderBottomBar: View {
 // MARK: - 底部横向进度条
 
 /// 翻页模式下贴在底部的横向进度条。
+///
+/// 与右侧竖向定位条同一套参数：基准 33% 长、7.5pt 粗，
+/// 拖动时等比放大并浮出章节气泡，只是整根躺下来。
 struct ReaderHorizontalProgress: View {
 
     @Bindable var session: ReaderSession
 
     @State private var dragValue: Double?
 
+    private let thickness: CGFloat = 7.5
+    private let normalRatio: CGFloat = 0.33
+    private let activeRatio: CGFloat = 0.46
+
     var body: some View {
         GeometryReader { proxy in
             let width = max(1, proxy.size.width)
+            let isDragging = dragValue != nil
+            let baseWidth = width * normalRatio
+            let scale = isDragging ? activeRatio / normalRatio : 1
+            let visualWidth = baseWidth * scale
             let progress = min(max(dragValue ?? session.totalProgression, 0), 1)
+            let thumbX = (width - visualWidth) / 2 + visualWidth * progress
 
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.primary.opacity(0.18))
+            ZStack {
+                if isDragging {
+                    let bubbleCenter = min(max(thumbX, 100), width - 100)
+                    callout(for: progress, tailOffset: thumbX - bubbleCenter)
+                        .offset(x: bubbleCenter - width / 2, y: -44)
+                        .allowsHitTesting(false)
+                }
 
-                Capsule()
-                    .fill(Color.primary.opacity(0.55))
-                    .frame(width: max(4, width * progress))
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.22))
+                    Capsule()
+                        .fill(Color.primary.opacity(0.55))
+                        .frame(width: max(0, baseWidth * progress))
+                }
+                .frame(width: baseWidth, height: thickness)
+                .scaleEffect(scale)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
-            .frame(height: 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .contentShape(.rect)
             .gesture(
                 DragGesture(minimumDistance: 2)
                     .onChanged { gesture in
-                        dragValue = min(max(gesture.location.x / width, 0), 1)
+                        let start = (width - visualWidth) / 2
+                        dragValue = min(max((gesture.location.x - start) / visualWidth, 0), 1)
                     }
                     .onEnded { _ in
                         if let value = dragValue {
@@ -246,11 +268,34 @@ struct ReaderHorizontalProgress: View {
                         dragValue = nil
                     }
             )
+            .animation(
+                .spring(response: 0.5, dampingFraction: 0.78, blendDuration: 0.15),
+                value: isDragging
+            )
         }
-        .frame(height: 28)
+        .frame(height: 26)
         .padding(.horizontal, 24)
+        .sensoryFeedback(.impact(weight: .light), trigger: dragValue == nil)
         .accessibilityLabel("阅读进度")
         .accessibilityValue("\(Int((session.totalProgression * 100).rounded()))%")
+    }
+
+    private func callout(for progress: Double, tailOffset: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(session.chapterTitle(atProgression: progress))
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+            Text("\(Int((min(max(progress, 0), 1) * 100).rounded()))%")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 14 + ScrubberBubbleShape.tailHeight)
+        .glassEffect(
+            .regular,
+            in: ScrubberBubbleShape(tailOffsetFromCenter: tailOffset, edge: .bottom)
+        )
     }
 }
 
@@ -411,8 +456,65 @@ struct ScrubberBubbleShape: Shape {
     /// 箭头中心相对气泡中心的偏移。0 表示正对中心。
     var tailOffsetFromCenter: CGFloat = 0
     var cornerRadius: CGFloat = 22
+    /// 箭头贴在哪条边：右（竖向进度条）或下（横向进度条）。
+    var edge: Edge = .trailing
 
     func path(in rect: CGRect) -> Path {
+        edge == .bottom ? bottomPath(in: rect) : trailingPath(in: rect)
+    }
+
+    private func bottomPath(in rect: CGRect) -> Path {
+        let bodyBottom = rect.maxY - Self.tailHeight
+        let radius = max(0, min(cornerRadius, (bodyBottom - rect.minY) / 2, rect.width / 2))
+        let tailHalf = Self.tailWidth / 2
+
+        let centerX = min(
+            max(rect.midX + tailOffsetFromCenter, rect.minX + radius + tailHalf),
+            rect.maxX - radius - tailHalf
+        )
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        path.addArc(
+            center: CGPoint(x: rect.maxX - radius, y: rect.minY + radius),
+            radius: radius,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(0),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: bodyBottom - radius))
+        path.addArc(
+            center: CGPoint(x: rect.maxX - radius, y: bodyBottom - radius),
+            radius: radius,
+            startAngle: .degrees(0),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: centerX + tailHalf, y: bodyBottom))
+        path.addLine(to: CGPoint(x: centerX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: centerX - tailHalf, y: bodyBottom))
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: bodyBottom))
+        path.addArc(
+            center: CGPoint(x: rect.minX + radius, y: bodyBottom - radius),
+            radius: radius,
+            startAngle: .degrees(90),
+            endAngle: .degrees(180),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addArc(
+            center: CGPoint(x: rect.minX + radius, y: rect.minY + radius),
+            radius: radius,
+            startAngle: .degrees(180),
+            endAngle: .degrees(270),
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    private func trailingPath(in rect: CGRect) -> Path {
         let height = rect.height
         let bodyRight = rect.maxX - Self.tailWidth
         // 圆角不能超过半个宽高，否则窄气泡会画出畸形轮廓

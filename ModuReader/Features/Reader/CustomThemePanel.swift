@@ -21,9 +21,10 @@ struct CustomThemePanel: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private static let sampleText = """
-    晚饭过后，我沿着海滩散步，想找一个绝佳的位置读完手里的书，再开启一本新书。我发现了一个地方，目之所及，空无一人。这里还有一张吊床，可以阅读和小憩。我躺下来，几经调整，找到一个最舒适的姿势，就此遁入书中，沉浸在最后一个章节。
-    """
+    private static let paragraphs = [
+        "晚饭过后，我沿着海滩散步，想找一个绝佳的位置读完手里的书，再开启一本新书。",
+        "我发现了一个地方，目之所及，空无一人。这里还有一张吊床，可以阅读和小憩。我躺下来，几经调整，找到一个最舒适的姿势，就此遁入书中。",
+    ]
 
     var body: some View {
         NavigationStack {
@@ -57,10 +58,14 @@ struct CustomThemePanel: View {
                         dismiss()
                     } label: {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 16, weight: .semibold))
+                            .symbolRenderingMode(.monochrome)
                             .foregroundStyle(.black)
                             .frame(width: 44, height: 44)
-                            .background(Color.white, in: Circle())
+                            .background {
+                                Circle().fill(Color.white)
+                            }
+                            .contentShape(Circle())
                             .overlay {
                                 Circle()
                                     .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
@@ -77,7 +82,8 @@ struct CustomThemePanel: View {
 
     private var preview: some View {
         let theme = session.settings.theme
-        let previewSize = min(session.settings.fontSize, 20)
+        let size = min(session.settings.fontSize, 20)
+        let indent = String(repeating: "\u{3000}", count: session.settings.firstLineIndent)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 1) {
@@ -85,28 +91,33 @@ struct CustomThemePanel: View {
                 Text("小").font(.system(size: 15, weight: .semibold))
             }
 
-            Text(Self.sampleText)
-                .font(.system(size: previewSize))
-                .lineSpacing(max(0, (session.settings.lineHeightMultiple - 1) * previewSize))
-                .tracking(session.settings.letterSpacing)
-                .lineLimit(7)
-                .multilineTextAlignment(.leading)
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: 0.82),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+            VStack(alignment: .leading, spacing: session.settings.paragraphSpacing) {
+                ForEach(Self.paragraphs.indices, id: \.self) { index in
+                    Text(indent + Self.paragraphs[index])
+                        .font(.system(size: size))
+                        .lineSpacing(max(0, (session.settings.lineHeightMultiple - 1) * size))
+                        .tracking(session.settings.letterSpacing)
+                        .multilineTextAlignment(.leading)
                 }
+            }
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.85),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
         }
         .foregroundStyle(theme.textColor)
-        .padding(24)
+        .padding(.vertical, 24)
+        .padding(.horizontal, max(8, session.settings.horizontalPadding * 0.8))
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 190, alignment: .topLeading)
+        .clipped()
         .background(
             theme.backgroundColor,
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)

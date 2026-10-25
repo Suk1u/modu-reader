@@ -63,9 +63,10 @@ struct ReaderSettingsPanel: View {
                     .padding(.top, 14)
             }
             .padding(.top, 12)
-            .padding(.bottom, 42)
+            .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
         .sheet(isPresented: $showCustomTheme) {
             CustomThemePanel(session: session)
                 .presentationDetents([.large])

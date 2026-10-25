@@ -36,6 +36,9 @@ struct TOCPanel: View {
         let locator: Locator?
         /// 高亮跳转后把标记滚到屏幕中央。
         let centerOnJump: Bool
+        /// 高亮颜色；书签为 nil。
+        let swatchHex: String?
+        let underlined: Bool
     }
 
     enum Section: String, CaseIterable, Identifiable {
@@ -154,7 +157,9 @@ struct TOCPanel: View {
                         date: $0.createdAt,
                         progression: $0.progression,
                         locator: $0.locator,
-                        centerOnJump: false
+                        centerOnJump: false,
+                        swatchHex: nil,
+                        underlined: false
                     )
                 },
                 emptyTitle: "没有书签",
@@ -169,7 +174,9 @@ struct TOCPanel: View {
                         date: $0.createdAt,
                         progression: $0.progression,
                         locator: $0.locator,
-                        centerOnJump: false
+                        centerOnJump: false,
+                        swatchHex: nil,
+                        underlined: false
                     )
                 },
                 emptyTitle: "没有高亮标记",
@@ -283,10 +290,19 @@ struct TOCPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.system(size: 16))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let hex = item.swatchHex, let rgb = RGBColor(hex: hex) {
+                        Circle()
+                            .fill(rgb.color)
+                            .frame(width: 9, height: 9)
+                            .accessibilityHidden(true)
+                    }
+                    Text(item.title)
+                        .font(.system(size: 16))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .underline(item.underlined)
+                }
                 Text(dayText(item.date))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)

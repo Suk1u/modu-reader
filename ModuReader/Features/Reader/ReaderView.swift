@@ -117,6 +117,18 @@ struct ReaderView: View {
                     .presentationCornerRadius(38)
             }
         }
+        .sheet(isPresented: Binding(
+            get: { session?.pendingHighlight != nil },
+            set: { if !$0 { session?.cancelPendingHighlight() } }
+        )) {
+            if let session {
+                HighlightStyleSheet { tintHex, underline in
+                    session.commitHighlight(tintHex: tintHex, underline: underline)
+                } onCancel: {
+                    session.cancelPendingHighlight()
+                }
+            }
+        }
         .sheet(isPresented: $showSearch) {
             if let session {
                 SearchPanel(session: session) { result in
@@ -166,41 +178,54 @@ struct ReaderView: View {
         .transition(.opacity)
     }
 
-    /// 回跳菜单。沉浸阅读时也要显示，只有发生过跳转才出现。
-    ///
-    /// 与右下角「更多」同一套写法（ReaderCircleMenu），点击展开撤销 / 重做。
+    /// 回跳按钮。单击在上一次位置之间来回，长按展开完整跳转历史。
+    /// 只在工具栏可见时出现 —— 沉浸阅读时不打扰。
     @ViewBuilder
     private func undoOverlay(session: ReaderSession) -> some View {
-        if session.canReturnToJumpOrigin || session.canRedoJump {
+        if showChrome, session.canReturnToJumpOrigin || session.canRedoJump {
             VStack {
                 Spacer(minLength: 0)
 
                 HStack {
-                    ReaderCircleMenu(
-                        systemName: "arrow.uturn.backward",
-                        tint: .primary,
-                        label: "跳转记录"
-                    ) {
-                        if session.canReturnToJumpOrigin {
-                            Button {
-                                session.returnToJumpOrigin()
-                            } label: {
-                                Label("撤销跳过页面", systemImage: "arrow.uturn.backward")
+                    Menu {
+                        ForEach(session.jumpEntries) { entry in
+                            Button("第 \(entry.page) 页") {
+                                session.jump(to: entry.index)
                             }
                         }
                         if session.canRedoJump {
-                            Button {
+                            Divider()
+                            Button("重做跳过页面") {
                                 session.redoJump()
-                            } label: {
-                                Label("重做跳过页面", systemImage: "arrow.uturn.forward")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.title2)
+                            .foregroundStyle(.primary)
+                            .frame(width: 29, height: 29)
+                            .frame(width: 50, height: 50)
+                            .contentShape(.circle)
+                            .glassEffect(
+                                .regular.interactive(),
+                                in: .rect(cornerRadius: 25, style: .continuous)
+                            )
+                            .glassEffectTransition(.materialize)
+                    } primaryAction: {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            if session.canReturnToJumpOrigin {
+                                session.returnToJumpOrigin()
+                            } else {
+                                session.redoJump()
                             }
                         }
                     }
+                    .accessibilityLabel("跳转记录")
 
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, 29)
-                .padding(.bottom, showChrome ? 1 : 20)
+                .padding(.bottom, 1)
             }
             .transition(.opacity)
         }

@@ -16,6 +16,10 @@ final class HighlightEntity {
     var chapterTitle: String
     /// 标记时抓取的正文片段，作为列表里的辨识内容。
     var excerpt: String
+    /// 高亮颜色 `#RRGGBB`。nil 用默认暖黄。
+    var tintHex: String?
+    /// 是否用下划线代替底色。
+    var underline: Bool?
     var createdAt: Date
     var book: BookEntity?
 
@@ -25,6 +29,8 @@ final class HighlightEntity {
         totalProgression: Double,
         chapterTitle: String,
         excerpt: String,
+        tintHex: String? = nil,
+        underline: Bool? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -32,6 +38,8 @@ final class HighlightEntity {
         self.totalProgression = totalProgression
         self.chapterTitle = chapterTitle
         self.excerpt = excerpt
+        self.tintHex = tintHex
+        self.underline = underline
         self.createdAt = createdAt
     }
 
