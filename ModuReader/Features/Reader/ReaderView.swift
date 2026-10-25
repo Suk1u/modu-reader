@@ -223,11 +223,11 @@ struct ReaderView: View {
     private func highlightPaletteOverlay(session: ReaderSession) -> some View {
         if session.pendingHighlight != nil {
             GeometryReader { proxy in
-                // 与 HighlightPalette 的实际高度对齐（22pt 圆点 + 上下留白）。
+                // 与 HighlightPalette 的实际高度对齐（30pt 命中区 + 上下留白）。
                 let paletteHeight: CGFloat = 46
                 let rect = session.pendingHighlightRect
                 let centerX = rect?.midX ?? proxy.size.width / 2
-                let x = min(max(centerX, 150), proxy.size.width - 150)
+                let x = min(max(centerX, 160), proxy.size.width - 160)
                 let y: CGFloat = {
                     guard let rect else { return proxy.size.height / 2 }
                     let above = rect.minY - paletteHeight / 2 - 8
@@ -235,10 +235,9 @@ struct ReaderView: View {
                     return rect.maxY + paletteHeight / 2 + 8
                 }()
 
-                Color.clear
-                    .contentShape(.rect)
-                    .onTapGesture { session.cancelPendingHighlight() }
-
+                // 不再铺一层全屏的取消手势：它和浮条按钮同时识别点击，
+                // 往往先把 pendingHighlight 清掉，按钮的落库就成了空操作。
+                // 点浮条外的正文由 WebView 的 tap 回调取消（见 ReaderSession）。
                 HighlightPalette(
                     onPick: { hex, underline in
                         session.commitHighlight(tintHex: hex, underline: underline)

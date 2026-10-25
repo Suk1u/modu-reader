@@ -450,16 +450,20 @@ final class ReaderSession {
     /// 用选定样式保存挂起的高亮。
     func commitHighlight(tintHex: String?, underline: Bool) {
         guard let locator = pendingHighlight,
-              let data = try? JSONEncoder().encode(locator) else { return }
+              let data = try? JSONEncoder().encode(locator) else {
+            Diagnostics.log("高亮: 提交失败 — 没有挂起的选区")
+            return
+        }
         pendingHighlight = nil
         pendingHighlightRect = nil
 
         let progression = locator.locations.totalProgression ?? engine.totalProgression
+        let excerpt = locator.text?.highlight ?? ""
         let entity = HighlightEntity(
             locatorJSON: data,
             totalProgression: progression,
             chapterTitle: chapterTitle(atProgression: progression),
-            excerpt: locator.text?.highlight ?? "",
+            excerpt: excerpt,
             tintHex: tintHex,
             underline: underline
         )
@@ -467,6 +471,9 @@ final class ReaderSession {
         modelContext.insert(entity)
         try? modelContext.save()
 
+        Diagnostics.log(
+            "高亮: 已保存「\(String(excerpt.prefix(18)))」颜色 \(tintHex ?? "默认") 下划线 \(underline)"
+        )
         reloadHighlights()
     }
 
@@ -511,6 +518,7 @@ final class ReaderSession {
                 underline: entity.underline ?? false
             )
         }
+        Diagnostics.log("高亮: 交给引擎 \(marks.count) 条")
         engine.applyHighlights(marks)
     }
 
@@ -741,7 +749,12 @@ final class ReaderSession {
         case .tapRight:
             nextPage()
         case .tapCenter:
-            onToggleChrome?()
+            // 配色浮条挂着时，点正文是「放弃这次高亮」，不要顺带切换工具栏。
+            if pendingHighlight != nil {
+                cancelPendingHighlight()
+            } else {
+                onToggleChrome?()
+            }
         case .selectionChanged:
             break
         case .highlight(let locator, let rect):
