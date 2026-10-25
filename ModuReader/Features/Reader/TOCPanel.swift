@@ -331,7 +331,7 @@ struct TOCPanel: View {
     /// 不显示章节名。
     private func highlightExcerpt(_ item: MarkRow) -> some View {
         let rgb = item.swatchHex.flatMap { RGBColor(hex: $0) }
-            ?? RGBColor(hex: HighlightStyleSheet.palette[0].hex)
+            ?? ReaderSettings.defaultHighlight
 
         return Text(item.title)
             .font(.system(size: 16))

@@ -6,21 +6,6 @@
 import Foundation
 import UIKit
 
-/// 注释（脚注）的显示方式。
-enum NoteDisplay: String, Codable, CaseIterable, Sendable {
-    /// 直接读段落下方的注释内容，「注」不可点击。
-    case inline
-    /// 点「注」后弹出气泡显示内容。
-    case popover
-
-    var displayName: String {
-        switch self {
-        case .inline: "内联"
-        case .popover: "气泡"
-        }
-    }
-}
-
 /// 阅读模式。
 enum ReadingMode: String, Codable, CaseIterable, Sendable {
     /// 分页阅读。
@@ -83,11 +68,6 @@ struct ReaderSettings: Codable, Equatable, Sendable {
     /// 高亮是否用下划线代替底色。nil 为底色。
     var highlightUnderline: Bool? = nil
 
-    /// 注释显示方式。nil 表示沿用默认（内联）。
-    ///
-    /// 存成可选，旧的设置数据缺少这个键时也能解码。
-    var noteDisplay: NoteDisplay? = nil
-
     /// 自定义强调色（`#RRGGBB`）。nil 表示使用主题自带的强调色。
     ///
     /// 声明为可选，旧的设置数据缺少这个键时也能解码。
@@ -117,10 +97,12 @@ struct ReaderSettings: Codable, Equatable, Sendable {
     /// 默认强调色（系统蓝）。主题自带的棕色只用于主题卡片装饰。
     static let defaultAccent = RGBColor(0.0, 0.478, 1.0)
 
-    var noteDisplayMode: NoteDisplay { noteDisplay ?? .inline }
+    /// 默认高亮色（暖黄）。设置里没挑颜色时用它。
+    static let defaultHighlight = RGBColor(0.98, 0.78, 0.32)
 
+    /// 实际使用的高亮色。点「高亮」时落库的就是这个值。
     var highlightRGB: RGBColor {
-        highlightColorHex.flatMap { RGBColor(hex: $0) } ?? RGBColor(0.98, 0.78, 0.32)
+        highlightColorHex.flatMap { RGBColor(hex: $0) } ?? Self.defaultHighlight
     }
 
     var usesUnderlineHighlight: Bool { highlightUnderline ?? false }

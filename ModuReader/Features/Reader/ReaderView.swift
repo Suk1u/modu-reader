@@ -63,7 +63,6 @@ struct ReaderView: View {
                 }
 
                 undoOverlay(session: session)
-                highlightPaletteOverlay(session: session)
             } else {
                 ProgressView("正在打开…")
                     .task { await prepare() }
@@ -211,45 +210,6 @@ struct ReaderView: View {
                 .padding(.leading, 29)
                 .padding(.bottom, 1)
             }
-            .transition(.opacity)
-        }
-    }
-
-    /// 选中文字后的配色浮条，浮在选区**上方**。
-    ///
-    /// 贴着选区顶边往上放；上方放不下（选在页首）才翻到下方，
-    /// 始终让浮条盖在选中的文字附近，而不是压住下一行。
-    @ViewBuilder
-    private func highlightPaletteOverlay(session: ReaderSession) -> some View {
-        if session.pendingHighlight != nil {
-            GeometryReader { proxy in
-                // 与 HighlightPalette 的实际高度对齐（30pt 命中区 + 上下留白）。
-                let paletteHeight: CGFloat = 46
-                let rect = session.pendingHighlightRect
-                let centerX = rect?.midX ?? proxy.size.width / 2
-                let x = min(max(centerX, 160), proxy.size.width - 160)
-                let y: CGFloat = {
-                    guard let rect else { return proxy.size.height / 2 }
-                    let above = rect.minY - paletteHeight / 2 - 8
-                    if above >= paletteHeight / 2 + 12 { return above }
-                    return rect.maxY + paletteHeight / 2 + 8
-                }()
-
-                // 不再铺一层全屏的取消手势：它和浮条按钮同时识别点击，
-                // 往往先把 pendingHighlight 清掉，按钮的落库就成了空操作。
-                // 点浮条外的正文由 WebView 的 tap 回调取消（见 ReaderSession）。
-                HighlightPalette(
-                    onPick: { hex, underline in
-                        session.commitHighlight(tintHex: hex, underline: underline)
-                    },
-                    onCancel: { session.cancelPendingHighlight() }
-                )
-                .position(
-                    x: x,
-                    y: min(max(y, paletteHeight / 2 + 8), proxy.size.height - paletteHeight / 2 - 8)
-                )
-            }
-            .ignoresSafeArea()
             .transition(.opacity)
         }
     }

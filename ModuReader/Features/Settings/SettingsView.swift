@@ -47,15 +47,6 @@ struct SettingsView: View {
                             set: { appContainer.globalSettings.highlightUnderline = $0 }
                         )
                     )
-
-                    Picker("注释显示", selection: Binding(
-                        get: { appContainer.globalSettings.noteDisplayMode },
-                        set: { appContainer.globalSettings.noteDisplay = $0 }
-                    )) {
-                        ForEach(NoteDisplay.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
                 }
 
                 Section("外观") {

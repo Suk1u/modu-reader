@@ -456,10 +456,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
             initialLocation: initialLocation,
             config: EPUBNavigatorViewController.Configuration(
                 preferences: makePreferences(settings),
-                // 选中文字后弹出「高亮标记」
+                // 选中文字后弹出系统编辑菜单，其中一项是「高亮」
                 editingActions: EditingAction.defaultActions + [
                     EditingAction(
-                        title: "高亮标记",
+                        title: "高亮",
                         action: #selector(highlightSelectionAction)
                     ),
                 ],
@@ -892,14 +892,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     private func beginHighlight(with selection: Selection) {
-        // 选区保留到落库为止 —— 配色浮条要先让读者看见正在标记哪一段。
-        // 清除由 ReaderSession 在保存之后统一做。
-        onInteraction?(.highlight(convert(readiumLocator: selection.locator), selection.frame))
-    }
-
-    /// 清除正文的文字选中。
-    func clearSelection() {
+        // 系统菜单点按即完成高亮：取走选区、清除选中，样式用设置里的
+        // 高亮颜色与下划线开关 —— 和 Apple Books 的「高亮」一致。
         navigator?.clearSelection()
+        onInteraction?(.highlight(convert(readiumLocator: selection.locator)))
     }
 
     func applyHighlights(_ marks: [HighlightMark]) {
@@ -1271,36 +1267,19 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         shouldNavigateToLink link: ReadiumShared.Link
     ) -> Bool {
         // 合并版的脚注：合并器把 href 改成了 #modu-note-<id>
-        if let anchor = Self.noteAnchorID(in: link.href) {
-            if settings.noteDisplayMode == .popover {
-                presentNote(forAnchor: anchor)
-            }
+        if Self.noteAnchorID(in: link.href) != nil {
             return false
         }
 
-        // 原书的脚注：Readium 的 noteref 识别要求点击元素的 href 与
-        // 规范化后的目标 href 互为后缀。出版方的 ../ 路径或改写过的
-        // 锚点经常让这一步落空，链接就按普通跳转处理，气泡永远不出现。
-        // 气泡模式下自己对带片段的链接做一次判断：先拦截，异步取目标
-        // 内容；确实不是脚注再补一次正常跳转，不丢导航。
-        guard settings.noteDisplayMode == .popover,
-              let fragment = Self.fragmentID(in: link.href),
-              Self.mightBeNote(fragment: fragment, href: link.href)
-        else { return true }
-
-        Diagnostics.log("脚注: 走兜底识别 \(link.href)")
-
-        Task { [weak self] in
-            guard let self else { return }
-            if let text = await self.noteText(for: link, fragment: fragment) {
-                Diagnostics.log("脚注: 气泡 \(text.count) 字 — \(fragment)")
-                self.presentNote(text: text, referrer: "", anchorID: fragment)
-            } else if let navigator = self.navigator {
-                Diagnostics.log("脚注: 未识别为注，正常跳转 \(link.href)")
-                _ = await navigator.go(to: link)
-            }
+        // 原书的脚注：注释正文就排在段落下方，点「注」不应该跳走。
+        // Readium 的 noteref 识别会因 ../ 路径或改写过的锚点落空，
+        // 这里按片段名兜一层，宁可不响应也不要把页面跳乱。
+        if let fragment = Self.fragmentID(in: link.href),
+           Self.mightBeNote(fragment: fragment, href: link.href) {
+            return false
         }
-        return false
+
+        return true
     }
 
     /// 链接片段看起来像不像脚注。
@@ -1316,33 +1295,6 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
             return true
         }
         return id.range(of: #"^n[-_]?\d+$"#, options: .regularExpression) != nil
-    }
-
-    /// 从目标资源里取出片段元素的文字。取不到或不像脚注时返回 nil。
-    private func noteText(for link: ReadiumShared.Link, fragment: String) async -> String? {
-        guard let publication, let resource = publication.get(link) else { return nil }
-        guard case .success(let data) = await resource.read(),
-              let html = String(data: data, encoding: .utf8),
-              let block = Self.elementBlock(id: fragment, inHTML: html)
-        else { return nil }
-
-        let text = Self.plainText(fromHTML: block)
-        // 脚注是短注释；整段章节 / 目录锚点不当作脚注，交还给正常跳转
-        guard !text.isEmpty, text.count <= 1200 else { return nil }
-        return text
-    }
-
-    /// 按 id 取出元素的完整 HTML 片段。
-    private static func elementBlock(id: String, inHTML html: String) -> String? {
-        let escaped = NSRegularExpression.escapedPattern(for: id)
-        let pattern = "<([a-zA-Z][a-zA-Z0-9]*)\\b[^>]*\\bid\\s*=\\s*[\"']\(escaped)[\"'][^>]*>([\\s\\S]*?)</\\1>"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-        let ns = html as NSString
-        let range = NSRange(location: 0, length: ns.length)
-        guard let match = regex.firstMatch(in: html, range: range) else { return nil }
-        return ns.substring(with: match.range)
     }
 
     private static func noteAnchorID(in href: String) -> String? {
@@ -1363,174 +1315,15 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         return value.isEmpty ? nil : value
     }
 
-    private func presentNote(forAnchor anchor: String) {
-        Task { [weak self] in
-            guard let self, let webView = Self.visibleWebView(in: self.view) else { return }
-
-            let literal = (try? JSONEncoder().encode(anchor))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-            let script = """
-            (function(){
-              var el = document.getElementById(\(literal));
-              if (!el) { return ""; }
-              var r = el.getBoundingClientRect();
-              return JSON.stringify({
-                text: (el.innerText || el.textContent || '').trim(),
-                x: r.left + r.width / 2,
-                y: r.top + r.height / 2
-              });
-            })()
-            """
-
-            guard let value = try? await webView.evaluateJavaScript(script),
-                  let raw = value as? String,
-                  let data = raw.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { return }
-
-            let text = (object["text"] as? String) ?? ""
-            guard !text.isEmpty else { return }
-
-            self.showNoteBubble(
-                content: text,
-                referrer: "",
-                anchor: CGPoint(
-                    x: (object["x"] as? Double) ?? Double(self.view.bounds.midX),
-                    y: (object["y"] as? Double) ?? Double(self.view.bounds.midY)
-                ),
-                in: webView
-            )
-        }
-    }
-
     /// 脚注点击。永远不跳转 —— 注释正文就在段落下方，
     /// 跳过去反而打断阅读。
-    ///
-    /// 原书的脚注链接没有合并器的 `modu-note-` 前缀，不能再用前缀
-    /// 判断「这是不是注」（之前正是这样把气泡吞掉了）。Readium 走到
-    /// 这条回调时已经把注释内容和目标链接都取好了，直接拿来弹。
     func navigator(
         _ navigator: EPUBNavigatorViewController,
         shouldNavigateToNoteAt link: ReadiumShared.Link,
         content: String,
         referrer: String
     ) -> Bool {
-        if settings.noteDisplayMode == .popover {
-            let text = Self.plainText(fromHTML: content)
-            if text.isEmpty {
-                Diagnostics.log("ReadiumEPUB: 脚注内容为空 — \(link.href)")
-            } else {
-                Diagnostics.log("脚注: Readium 识别 — \(text.count) 字")
-                presentNote(
-                    text: text,
-                    referrer: Self.plainText(fromHTML: referrer),
-                    anchorID: Self.fragmentID(in: link.href)
-                )
-            }
-        }
-        return false
-    }
-
-    /// 用现成的注释文字弹气泡；能定位到页面元素就把气泡指向它，
-    /// 否则落在屏幕中央（脚注目标可能在另一个资源里）。
-    private func presentNote(text: String, referrer: String, anchorID: String?) {
-        Task { [weak self] in
-            guard let self else { return }
-
-            let webView = Self.visibleWebView(in: self.view)
-            var anchor: CGPoint?
-            if let anchorID, let webView {
-                anchor = await Self.elementCenter(id: anchorID, in: webView)
-            }
-
-            self.showNoteBubble(
-                content: text,
-                referrer: referrer,
-                anchor: anchor,
-                in: webView
-            )
-        }
-    }
-
-    /// 元素中心在 WebView 里的坐标。元素不在当前视口就返回 nil。
-    private static func elementCenter(id: String, in webView: WKWebView) async -> CGPoint? {
-        let literal = (try? JSONEncoder().encode(id))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-        let script = """
-        (function(){
-          var el = document.getElementById(\(literal));
-          if (!el) { return ""; }
-          var r = el.getBoundingClientRect();
-          if (r.bottom < 0 || r.top > window.innerHeight) { return ""; }
-          return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-        })()
-        """
-
-        guard let value = try? await webView.evaluateJavaScript(script),
-              let raw = value as? String,
-              let data = raw.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let x = object["x"] as? Double,
-              let y = object["y"] as? Double
-        else { return nil }
-
-        return CGPoint(x: x, y: y)
-    }
-
-    /// 把 Readium 给的脚注 HTML 变成气泡里可读的纯文本。
-    private static func plainText(fromHTML html: String) -> String {
-        if let data = html.data(using: .utf8),
-           let attributed = try? NSAttributedString(
-               data: data,
-               options: [
-                   .documentType: NSAttributedString.DocumentType.html,
-                   .characterEncoding: String.Encoding.utf8.rawValue,
-               ],
-               documentAttributes: nil
-           ) {
-            let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return text }
-        }
-
-        return html
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func showNoteBubble(
-        content: String,
-        referrer: String,
-        anchor: CGPoint?,
-        in webView: WKWebView?
-    ) {
-        guard presentedViewController == nil, !content.isEmpty else { return }
-
-        let host = UIHostingController(
-            rootView: NoteBubbleView(referrer: referrer, content: content)
-        )
-        host.modalPresentationStyle = .popover
-        host.view.backgroundColor = .clear
-
-        var sourceRect = CGRect(
-            x: view.bounds.midX,
-            y: view.bounds.midY,
-            width: 1,
-            height: 1
-        )
-        if let webView, let anchor {
-            let point = webView.convert(anchor, to: view)
-            sourceRect = CGRect(x: point.x, y: point.y, width: 1, height: 1)
-        }
-
-        if let popover = host.popoverPresentationController {
-            popover.delegate = self
-            popover.sourceView = view
-            popover.sourceRect = sourceRect
-            popover.permittedArrowDirections = [.up, .down]
-            popover.backgroundColor = .clear
-        }
-
-        present(host, animated: true)
+        false
     }
 
     func navigator(_ navigator: VisualNavigator, didTapAt point: CGPoint) {
@@ -1541,16 +1334,6 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         // 全屏任意位置都切换工具栏显隐（翻页靠滑动）
         _ = width
         onInteraction?(.tapCenter)
-    }
-}
-
-// MARK: - 气泡在 iPhone 上也保持浮动
-
-extension ReadiumEPUBEngine: UIPopoverPresentationControllerDelegate {
-    func adaptivePresentationStyle(
-        for controller: UIPresentationController
-    ) -> UIModalPresentationStyle {
-        .none
     }
 }
 
