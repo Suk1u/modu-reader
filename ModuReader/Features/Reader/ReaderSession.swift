@@ -109,6 +109,8 @@ final class ReaderSession {
 
     /// 刚选中、等待选择颜色的高亮。
     private(set) var pendingHighlight: Locator?
+    /// 选区位置，用来给配色浮条定位。
+    private(set) var pendingHighlightRect: CGRect?
 
     /// 跳转来源栈（撤销用）。
     private(set) var jumpBackStack: [Double] = []
@@ -420,12 +422,14 @@ final class ReaderSession {
     // MARK: - 高亮标记
 
     /// 选中文字后先挂起，等用户选完颜色 / 下划线再落库。
-    private func addHighlight(at locator: Locator) {
+    private func addHighlight(at locator: Locator, rect: CGRect?) {
         pendingHighlight = locator
+        pendingHighlightRect = rect
     }
 
     func cancelPendingHighlight() {
         pendingHighlight = nil
+        pendingHighlightRect = nil
     }
 
     /// 用选定样式保存挂起的高亮。
@@ -433,6 +437,7 @@ final class ReaderSession {
         guard let locator = pendingHighlight,
               let data = try? JSONEncoder().encode(locator) else { return }
         pendingHighlight = nil
+        pendingHighlightRect = nil
 
         let progression = locator.locations.totalProgression ?? engine.totalProgression
         let entity = HighlightEntity(
@@ -542,7 +547,7 @@ final class ReaderSession {
                 pendingPage = livePage
                 pageStableSince = Date()
             } else if livePage != currentPageNumber,
-                      Date().timeIntervalSince(pageStableSince) > 0.35 {
+                      Date().timeIntervalSince(pageStableSince) > 0.5 {
                 currentPageNumber = livePage
             }
         }
@@ -704,8 +709,8 @@ final class ReaderSession {
             onToggleChrome?()
         case .selectionChanged:
             break
-        case .highlight(let locator):
-            addHighlight(at: locator)
+        case .highlight(let locator, let rect):
+            addHighlight(at: locator, rect: rect)
         }
     }
 
@@ -718,7 +723,6 @@ final class ReaderSession {
     /// 把引擎的计算值搬进可观察属性。
     private func refreshPageMetrics() {
         totalPageCount = engine.totalPageCountValue
-        currentPageNumber = engine.currentPageNumber
 
         if currentPageNumber > 0, let range = engine.chapterPageRange() {
             chapterRemainingPages = max(0, range.upperBound - currentPageNumber)

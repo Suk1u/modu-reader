@@ -63,6 +63,7 @@ struct ReaderView: View {
                 }
 
                 undoOverlay(session: session)
+                highlightPaletteOverlay(session: session)
             } else {
                 ProgressView("正在打开…")
                     .task { await prepare() }
@@ -117,18 +118,6 @@ struct ReaderView: View {
                     .presentationCornerRadius(38)
             }
         }
-        .sheet(isPresented: Binding(
-            get: { session?.pendingHighlight != nil },
-            set: { if !$0 { session?.cancelPendingHighlight() } }
-        )) {
-            if let session {
-                HighlightStyleSheet { tintHex, underline in
-                    session.commitHighlight(tintHex: tintHex, underline: underline)
-                } onCancel: {
-                    session.cancelPendingHighlight()
-                }
-            }
-        }
         .sheet(isPresented: $showSearch) {
             if let session {
                 SearchPanel(session: session) { result in
@@ -163,17 +152,23 @@ struct ReaderView: View {
             Spacer(minLength: 0)
 
             if session.settings.readingMode == .paged {
-                ReaderHorizontalProgress(session: session)
-                    .padding(.bottom, 2)
+                ReaderPagedBottomBar(
+                    session: session,
+                    pageText: pageText(for: session),
+                    tint: .primary,
+                    onOpenTOC: { presentPanel(.toc) },
+                    onOpenSearch: { presentPanel(.search) },
+                    onOpenSettings: { presentPanel(.settings) }
+                )
+            } else {
+                ReaderBottomBar(
+                    pageText: pageText(for: session),
+                    tint: .primary,
+                    onOpenTOC: { presentPanel(.toc) },
+                    onOpenSearch: { presentPanel(.search) },
+                    onOpenSettings: { presentPanel(.settings) }
+                )
             }
-
-            ReaderBottomBar(
-                pageText: pageText(for: session),
-                tint: .primary,
-                onOpenTOC: { presentPanel(.toc) },
-                onOpenSearch: { presentPanel(.search) },
-                onOpenSettings: { presentPanel(.settings) }
-            )
         }
         .transition(.opacity)
     }
@@ -227,6 +222,32 @@ struct ReaderView: View {
                 .padding(.leading, 29)
                 .padding(.bottom, 1)
             }
+            .transition(.opacity)
+        }
+    }
+
+    /// 选中文字后的配色浮条，跟随选区位置。
+    @ViewBuilder
+    private func highlightPaletteOverlay(session: ReaderSession) -> some View {
+        if session.pendingHighlight != nil {
+            GeometryReader { proxy in
+                let rect = session.pendingHighlightRect
+                let x = min(max(rect?.midX ?? proxy.size.width / 2, 150), proxy.size.width - 150)
+                let y = min(max((rect?.maxY ?? proxy.size.height / 2) + 40, 80), proxy.size.height - 140)
+
+                Color.clear
+                    .contentShape(.rect)
+                    .onTapGesture { session.cancelPendingHighlight() }
+
+                HighlightPalette(
+                    onPick: { hex, underline in
+                        session.commitHighlight(tintHex: hex, underline: underline)
+                    },
+                    onCancel: { session.cancelPendingHighlight() }
+                )
+                .position(x: x, y: y)
+            }
+            .ignoresSafeArea()
             .transition(.opacity)
         }
     }

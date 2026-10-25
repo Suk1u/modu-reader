@@ -857,7 +857,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     @objc private func highlightSelectionAction() {
         guard let selection = navigator?.currentSelection else { return }
         navigator?.clearSelection()
-        onInteraction?(.highlight(convert(readiumLocator: selection.locator)))
+        onInteraction?(.highlight(convert(readiumLocator: selection.locator), selection.frame))
     }
 
     func applyHighlights(_ marks: [HighlightMark]) {
@@ -1175,7 +1175,13 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         content: String,
         referrer: String
     ) -> Bool {
-        false
+        // Readium 自己认出了脚注时走这条路径 —— 气泡必须在这里也弹一次，
+        // 否则只会「吞掉点击」而什么也不发生。
+        if settings.noteDisplayMode == .popover,
+           let anchor = Self.noteAnchorID(in: link.href) {
+            presentNote(forAnchor: anchor)
+        }
+        return false
     }
 
     private func presentNote(

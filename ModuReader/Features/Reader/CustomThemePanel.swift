@@ -54,24 +54,18 @@ struct CustomThemePanel: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
+                    // 用系统胶囊按钮，白底黑勾，不再自己拼圆形背景
                     Button {
                         dismiss()
                     } label: {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .symbolRenderingMode(.monochrome)
-                            .foregroundStyle(.black)
-                            .frame(width: 44, height: 44)
-                            .background {
-                                Circle().fill(Color.white)
-                            }
-                            .contentShape(Circle())
-                            .overlay {
-                                Circle()
-                                    .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
-                            }
+                            .fontWeight(.semibold)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .tint(.white)
+                    .foregroundStyle(.black)
                     .accessibilityLabel("完成")
                 }
             }

@@ -274,7 +274,6 @@ struct ReaderHorizontalProgress: View {
             )
         }
         .frame(height: 26)
-        .padding(.horizontal, 24)
         .sensoryFeedback(.impact(weight: .light), trigger: dragValue == nil)
         .accessibilityLabel("阅读进度")
         .accessibilityValue("\(Int((session.totalProgression * 100).rounded()))%")
@@ -296,6 +295,58 @@ struct ReaderHorizontalProgress: View {
             .regular,
             in: ScrubberBubbleShape(tailOffsetFromCenter: tailOffset, edge: .bottom)
         )
+    }
+}
+
+// MARK: - 翻页模式底栏
+
+/// 翻页模式的底栏：回跳 / 横向进度条 / 更多，页码在进度条正下方。
+struct ReaderPagedBottomBar: View {
+
+    @Bindable var session: ReaderSession
+    let pageText: String
+    let tint: Color
+    let onOpenTOC: () -> Void
+    let onOpenSearch: () -> Void
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                // 回跳按钮是独立图层，这里留出等宽空位，进度条才能居中
+                Color.clear
+                    .frame(width: 50, height: 50)
+                    .allowsHitTesting(false)
+
+                ReaderHorizontalProgress(session: session)
+
+                ReaderCircleMenu(
+                    systemName: "ellipsis",
+                    tint: tint,
+                    label: "更多"
+                ) {
+                    Button { onOpenTOC() } label: {
+                        Label("目录", systemImage: "list.bullet.rectangle")
+                    }
+                    Button { onOpenSearch() } label: {
+                        Label("在图书中搜索", systemImage: "magnifyingglass")
+                    }
+                    Button { onOpenSettings() } label: {
+                        Label("主题与设置", systemImage: "textformat.size")
+                    }
+                }
+            }
+
+            Text(pageText)
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.28), value: pageText)
+                .accessibilityLabel("页码")
+                .accessibilityValue(pageText)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 }
 

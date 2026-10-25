@@ -24,7 +24,8 @@ enum ReaderInteraction: Sendable {
     case tapRight
     case selectionChanged
     /// 用户在弹出的选择菜单里点了「高亮标记」。
-    case highlight(Locator)
+    /// 第二个参数是选区在阅读器视图里的位置，用来定位配色浮条。
+    case highlight(Locator, CGRect?)
 }
 
 /// 一条要交给引擎渲染的高亮。
