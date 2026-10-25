@@ -233,12 +233,11 @@ struct ReaderView: View {
                 let rect = session.pendingHighlightRect
                 let centerX = rect?.midX ?? proxy.size.width / 2
                 let x = min(max(centerX, 160), proxy.size.width - 160)
-                let y: CGFloat = {
-                    guard let rect else { return proxy.size.height / 2 }
-                    let above = rect.minY - paletteHeight / 2 - 8
-                    if above >= paletteHeight / 2 + 12 { return above }
-                    return rect.maxY + paletteHeight / 2 + 8
-                }()
+                let above = (rect?.minY ?? 0) - paletteHeight / 2 - 8
+                let isAbove = above >= paletteHeight / 2 + 12
+                let y = isAbove
+                    ? above
+                    : (rect?.maxY ?? proxy.size.height / 2) + paletteHeight / 2 + 8
 
                 HighlightPalette(
                     onPick: { hex, underline in
@@ -258,9 +257,14 @@ struct ReaderView: View {
                     x: x,
                     y: min(max(y, paletteHeight / 2 + 8), proxy.size.height - paletteHeight / 2 - 8)
                 )
+                // 浮条在文字上方就从上方展开，在下方就从下方展开
+                .transition(
+                    .opacity.combined(
+                        with: .scale(scale: 0.9, anchor: isAbove ? .top : .bottom)
+                    )
+                )
             }
             .ignoresSafeArea()
-            .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
         }
     }
 

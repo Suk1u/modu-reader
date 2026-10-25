@@ -113,6 +113,8 @@ final class ReaderSession {
     private(set) var pendingHighlightRect: CGRect?
     /// 已经自动落库、等待浮条替换样式的那条标记。
     private var pendingHighlightID: UUID?
+    /// 浮条出现时的滚动进度。滑动超过阈值就收起浮条。
+    private var pendingAnchorProgression: Double?
 
     /// 跳转来源栈（撤销用）。
     private(set) var jumpBackStack: [Double] = []
@@ -473,6 +475,7 @@ final class ReaderSession {
             return rect
         }()
         pendingHighlightID = entity.id
+        pendingAnchorProgression = engine.liveProgression
 
         Diagnostics.log(
             "高亮: 自动标记「\(String(excerpt.prefix(18)))」颜色 \(tintHex) 下划线 \(underline)"
@@ -482,10 +485,16 @@ final class ReaderSession {
 
     /// 收起浮条，但保留已经落下的高亮。
     func cancelPendingHighlight() {
+        closePendingPalette()
+        engine.clearSelection()
+    }
+
+    /// 只收起浮条，不动已经落库的标记。
+    private func closePendingPalette() {
         pendingHighlight = nil
         pendingHighlightRect = nil
         pendingHighlightID = nil
-        engine.clearSelection()
+        pendingAnchorProgression = nil
     }
 
     /// 用浮条上选的样式替换刚自动标记的那条高亮，
@@ -518,9 +527,7 @@ final class ReaderSession {
         settings.highlightColorHex = tintHex
         settings.highlightUnderline = underline
 
-        pendingHighlight = nil
-        pendingHighlightRect = nil
-        pendingHighlightID = nil
+        closePendingPalette()
 
         Diagnostics.log("高亮: 样式替换为 \(tintHex ?? "默认") 下划线 \(underline)")
         engine.clearSelection()
@@ -642,6 +649,13 @@ final class ReaderSession {
         }()
         if remaining != chapterRemainingPages { chapterRemainingPages = remaining }
 
+        // 滑动（翻页 / 滚动）后收起浮条；高亮已经落库，不会丢。
+        if pendingHighlight != nil,
+           let anchor = pendingAnchorProgression,
+           abs(live - anchor) > 0.00005 {
+            closePendingPalette()
+        }
+
         // 浮条跟着选区走：只有读者调整了选择范围才移动浮条。
         // 自动落库后 Readium 会刷新 selection.frame，按 frame 无脑跟随
         // 会让浮条刚出现就上下跳一下。
@@ -734,17 +748,12 @@ final class ReaderSession {
     }
 
     private func handleLocatorChange(_ locator: Locator) {
-        // 只有离开标记位置（翻页 / 大幅滚动）才收起浮条。
-        // 应用高亮装饰后的小幅位置回调不能把浮条弄没，
-        // 否则刚点完「高亮标记」浮条就消失了。
-        if let pending = pendingHighlight {
-            let current = engine.totalProgression
-            let origin = pending.locations.totalProgression ?? current
-            if abs(current - origin) > 0.002 {
-                pendingHighlight = nil
-                pendingHighlightRect = nil
-                pendingHighlightID = nil
-            }
+        // 滑动（翻页 / 滚动）后立即收起浮条；高亮已经落库，不会丢。
+        // 用出现时的滚动进度做锚点，自动落库刷新的 frame 不会误伤。
+        if pendingHighlight != nil,
+           let anchor = pendingAnchorProgression,
+           abs(engine.liveProgression - anchor) > 0.00005 {
+            closePendingPalette()
         }
 
         // 章节变化立即同步（用于底部章节名）
