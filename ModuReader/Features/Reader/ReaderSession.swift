@@ -196,6 +196,10 @@ final class ReaderSession {
         reloadBookmarks()
         reloadHighlights()
         refreshPageMetrics()
+        // 翻页模式的页码就是引擎给出的位置序号，先立即可用再交给心跳
+        if settings.readingMode == .paged, engine.currentPageNumber > 0 {
+            currentPageNumber = engine.currentPageNumber
+        }
         startLiveUpdates()
     }
 
@@ -351,6 +355,17 @@ final class ReaderSession {
         guard totalPageCount > 0 else { return 0 }
         let page = Int((min(max(progression, 0), 1) * Double(totalPageCount)).rounded())
         return min(max(page, 1), totalPageCount)
+    }
+
+    /// 一条标记（书签 / 高亮）的页码。
+    ///
+    /// 优先用保存落点里记录的精确位置序号 —— 它和底栏页码是同一套
+    /// 坐标，列表里的数字才不会和阅读时看到的对不上。
+    func pageNumber(for locator: Locator?, fallbackProgression: Double) -> Int {
+        if let page = locator?.locations.page, page > 0 {
+            return page
+        }
+        return pageNumber(atProgression: fallbackProgression)
     }
 
     // MARK: - 书签
@@ -537,8 +552,19 @@ final class ReaderSession {
             currentChapterIndex = chapter
         }
 
-        // 页码：滚动中保持上一个确切值，稳定 350ms 后才换成新数字
-        if totalPageCount > 0 {
+        // 页码：一页一计数。
+        //
+        // 翻页模式直接读渲染引擎的位置序号（Readium 的 position 与翻页
+        // 一一对应，翻一页恰好 +1）；用「进度 × 总页数」换算会因为各章
+        // 字数与分页数不成比例而跳号、回退。
+        //
+        // 滚动模式没有稳定页边界，仍按滚动进度换算，稳定 0.5s 后才换数字。
+        if settings.readingMode == .paged {
+            let position = engine.currentPageNumber
+            if position > 0, position != currentPageNumber {
+                currentPageNumber = position
+            }
+        } else if totalPageCount > 0 {
             let livePage = min(
                 max(Int((live * Double(totalPageCount)).rounded()), 1),
                 totalPageCount
@@ -636,6 +662,15 @@ final class ReaderSession {
         let chapterIndex = engine.currentChapterIndex
         if chapterIndex != currentChapterIndex {
             currentChapterIndex = chapterIndex
+        }
+
+        // 翻页模式的页码是位置序号，位置回调到达就立即刷新，
+        // 不必等 250ms 心跳 —— 翻一页数字当场 +1。
+        if settings.readingMode == .paged {
+            let position = engine.currentPageNumber
+            if position > 0, position != currentPageNumber {
+                currentPageNumber = position
+            }
         }
 
         // 进度百分比按固定间隔刷新，避免滚动时高频重绘

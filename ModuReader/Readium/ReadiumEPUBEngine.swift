@@ -117,6 +117,13 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private var highlightMarks: [HighlightMark] = []
     /// 章节定位是否按全书进度走（合并版只有单个资源，只能这样）。
     private var syncByProgression = false
+    /// 编辑菜单弹出时缓存下来的选区。
+    ///
+    /// 点下自定义菜单项的那一刻，WKWebView 往往已经撤销了选择，
+    /// `navigator.currentSelection` 会变成 nil —— 之前只读它，
+    /// 结果就是「点高亮后选区消失、什么也没留下」。菜单构建阶段
+    /// （选区一定还在）先留一份，action 里优先用它。
+    private var pendingSelection: Selection?
     /// 位置统计的代数号。切换来源或重新打开时递增，
     /// 用来丢弃过期的后台统计结果。
     private var positionsGeneration = 0
@@ -854,8 +861,37 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private static let highlightGroup = "modu.highlight"
 
     /// 选择菜单里的「高亮标记」。
+    ///
+    /// 先取当前选区，取不到就退回菜单弹出时缓存的选区 —— 两者都没有
+    /// 才真的放弃。Readium 的选区由 JS 桥接异步上报，偶尔比菜单慢
+    /// 一拍，所以再短暂轮询几次，而不是点一下就静默失败。
     @objc private func highlightSelectionAction() {
-        guard let selection = navigator?.currentSelection else { return }
+        if let selection = takeSelection() {
+            beginHighlight(with: selection)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<5 {
+                try? await Task<Never, Never>.sleep(for: .milliseconds(100))
+                if let selection = self.takeSelection() {
+                    self.beginHighlight(with: selection)
+                    return
+                }
+            }
+            Diagnostics.log("ReadiumEPUB: 高亮失败 — 取不到选区")
+        }
+    }
+
+    /// 取走当前选区（优先实时值，其次菜单弹出时的缓存）。
+    private func takeSelection() -> Selection? {
+        let selection = navigator?.currentSelection ?? pendingSelection
+        pendingSelection = nil
+        return selection
+    }
+
+    private func beginHighlight(with selection: Selection) {
         navigator?.clearSelection()
         onInteraction?(.highlight(convert(readiumLocator: selection.locator), selection.frame))
     }
@@ -866,7 +902,7 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     private func renderHighlights() {
-        guard let navigator, let publication else { return }
+        guard let navigator else { return }
 
         let defaultTint = settings.highlightRGB
         let defaultUnderline = settings.usesUnderlineHighlight
@@ -875,11 +911,9 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
 
         for mark in highlightMarks {
             // 只画当前渲染源里的书（合并版与原书的 href 不同）
-            guard publication.readingOrder.contains(where: {
-                $0.anyURL.string == mark.locator.href
-            }) else { continue }
+            guard let link = resourceLink(forHref: mark.locator.href) else { continue }
 
-            guard let readium = decoratorLocator(for: mark.locator) else { continue }
+            guard let readium = decoratorLocator(for: mark.locator, link: link) else { continue }
 
             let rgb = mark.tintHex.flatMap { RGBColor(hex: $0) } ?? defaultTint
             let tint = UIColor(rgb.color)
@@ -899,14 +933,10 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
         navigator.apply(decorations: decorations, in: Self.highlightGroup)
     }
 
-    private func decoratorLocator(for locator: Locator) -> ReadiumShared.Locator? {
-        guard let publication,
-              let link = publication.readingOrder.first(where: {
-                  $0.anyURL.string == locator.href
-              }) else {
-            return nil
-        }
-
+    private func decoratorLocator(
+        for locator: Locator,
+        link: ReadiumShared.Link
+    ) -> ReadiumShared.Locator? {
         let quote = locator.text
 
         return ReadiumShared.Locator(
@@ -923,6 +953,28 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 highlight: quote?.highlight
             )
         )
+    }
+
+    /// 保存的 href 对应当前出版物的哪个资源。
+    ///
+    /// 不能直接比较字符串：Readium 给出的 href 可能带 `./`、百分号
+    /// 编码或片段，而 readingOrder 里是规范形式。两者对不上，高亮就
+    /// 被当成「别的书」默默丢掉 —— 表现为点了颜色却什么也没画出来。
+    /// 先按 URL 等价比较，再退回项目统一的归一化规则。
+    private func resourceLink(forHref href: String) -> ReadiumShared.Link? {
+        guard !href.isEmpty, let publication else { return nil }
+
+        if let url = AnyURL(legacyHREF: href),
+           let link = publication.readingOrder.first(where: {
+               $0.anyURL.isEquivalentTo(url)
+           }) {
+            return link
+        }
+
+        let key = normalizedHref(href)
+        return publication.readingOrder.first {
+            normalizedHref($0.anyURL.string) == key
+        }
     }
 
     /// 把指定落点滚到屏幕中央。
@@ -1050,24 +1102,15 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     private func readiumLocator(from locator: Locator?) -> ReadiumShared.Locator? {
         guard let locator, let publication else { return nil }
 
-        let hasMatchingResource = !locator.href.isEmpty
-            && publication.readingOrder.contains { $0.anyURL.string == locator.href }
+        let matchedResource = resourceLink(forHref: locator.href)
 
-        if !hasMatchingResource,
+        if matchedResource == nil,
            let target = locator.locations.totalProgression,
            let position = closestPosition(to: target) {
             return position
         }
 
-        let link: ReadiumShared.Link? = {
-            if hasMatchingResource,
-               let match = publication.readingOrder.first(where: {
-                   $0.anyURL.string == locator.href
-               }) {
-                return match
-            }
-            return publication.readingOrder.first
-        }()
+        let link: ReadiumShared.Link? = matchedResource ?? publication.readingOrder.first
 
         guard let link else { return nil }
 
@@ -1099,6 +1142,28 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: ReadiumShared.Locator) {
         syncChapterIndex()
         onLocatorChange?(convert(readiumLocator: locator))
+    }
+
+    /// 编辑菜单即将弹出 —— 此时选区一定还在，先缓存一份。
+    ///
+    /// 菜单项被点下时 WebView 可能已经清掉选区，`currentSelection`
+    /// 不可靠；缓存让「高亮标记」在两种时序下都能拿到文字。
+    func navigator(
+        _ navigator: SelectableNavigator,
+        shouldShowMenuForSelection selection: Selection
+    ) -> Bool {
+        pendingSelection = selection
+        return true
+    }
+
+    /// 菜单项可执行性检查。这里也刷新一次缓存，覆盖菜单直接复用的情况。
+    func navigator(
+        _ navigator: SelectableNavigator,
+        canPerformAction action: EditingAction,
+        for selection: Selection
+    ) -> Bool {
+        pendingSelection = selection
+        return true
     }
 
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) {

@@ -170,17 +170,17 @@ struct TOCPanel: View {
                 items: session.highlights.map {
                     MarkRow(
                         id: $0.id,
-                        title: $0.chapterTitle,
+                        title: $0.excerpt.isEmpty ? "高亮标记" : $0.excerpt,
                         date: $0.createdAt,
                         progression: $0.progression,
                         locator: $0.locator,
                         centerOnJump: false,
-                        swatchHex: nil,
-                        underlined: false
+                        swatchHex: $0.tintHex,
+                        underlined: $0.underline
                     )
                 },
                 emptyTitle: "没有高亮标记",
-                emptyMessage: "在阅读页的「更多」菜单里选择「高亮本页」。"
+                emptyMessage: "长按选中正文，点「高亮标记」，再挑一种颜色。"
             )
         }
     }
@@ -281,28 +281,25 @@ struct TOCPanel: View {
     }
 
     private func markRow(_ item: MarkRow) -> some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             if isSelecting {
                 Image(systemName: selection.contains(item.id) ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
                     .foregroundStyle(selection.contains(item.id) ? Color.accentColor : .secondary)
+                    .padding(.top, 1)
                     .accessibilityHidden(true)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    if let hex = item.swatchHex, let rgb = RGBColor(hex: hex) {
-                        Circle()
-                            .fill(rgb.color)
-                            .frame(width: 9, height: 9)
-                            .accessibilityHidden(true)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                if tab == .highlights {
+                    highlightExcerpt(item)
+                } else {
                     Text(item.title)
                         .font(.system(size: 16))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
-                        .underline(item.underlined)
                 }
+
                 Text(dayText(item.date))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -310,12 +307,14 @@ struct TOCPanel: View {
 
             Spacer(minLength: 8)
 
-            Text("\(session.pageNumber(atProgression: item.progression))")
+            Text("\(session.pageNumber(for: item.locator, fallbackProgression: item.progression))")
                 .font(.system(size: 14).monospacedDigit())
                 .foregroundStyle(.secondary)
+                .padding(.top, 2)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 60)
+        .padding(.vertical, 10)
+        .frame(minHeight: 58)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.primary.opacity(0.06))
@@ -324,6 +323,39 @@ struct TOCPanel: View {
         }
         .contentShape(.rect)
         .accessibilityLabel(item.title)
+    }
+
+    /// 高亮行：显示被标记的那段文字本身，并按当时的标记方式渲染 ——
+    /// 颜色高亮铺底色，下划线样式只画线。列表里看到的样子和正文一致，
+    /// 不显示章节名。
+    private func highlightExcerpt(_ item: MarkRow) -> some View {
+        let rgb = item.swatchHex.flatMap { RGBColor(hex: $0) }
+            ?? RGBColor(hex: HighlightStyleSheet.palette[0].hex)
+
+        return Text(item.title)
+            .font(.system(size: 16))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .underline(item.underlined)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 1.5)
+            .foregroundStyle(
+                item.underlined ? Color.primary : readableTextColor(on: rgb)
+            )
+            .background {
+                if !item.underlined, let rgb {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(rgb.color)
+                }
+            }
+            .padding(.trailing, 2)
+    }
+
+    /// 在高亮底色上挑一个对比度足够的文字色。
+    private func readableTextColor(on rgb: RGBColor?) -> Color {
+        guard let rgb else { return .primary }
+        let luminance = 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue
+        return luminance > 0.62 ? Color(white: 0.08) : Color(white: 0.99)
     }
 
     private func handleMarkTap(_ item: MarkRow) {

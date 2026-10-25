@@ -151,24 +151,13 @@ struct ReaderView: View {
 
             Spacer(minLength: 0)
 
-            if session.settings.readingMode == .paged {
-                ReaderPagedBottomBar(
-                    session: session,
-                    pageText: pageText(for: session),
-                    tint: .primary,
-                    onOpenTOC: { presentPanel(.toc) },
-                    onOpenSearch: { presentPanel(.search) },
-                    onOpenSettings: { presentPanel(.settings) }
-                )
-            } else {
-                ReaderBottomBar(
-                    pageText: pageText(for: session),
-                    tint: .primary,
-                    onOpenTOC: { presentPanel(.toc) },
-                    onOpenSearch: { presentPanel(.search) },
-                    onOpenSettings: { presentPanel(.settings) }
-                )
-            }
+            ReaderBottomBar(
+                pageText: pageText(for: session),
+                tint: .primary,
+                onOpenTOC: { presentPanel(.toc) },
+                onOpenSearch: { presentPanel(.search) },
+                onOpenSettings: { presentPanel(.settings) }
+            )
         }
         .transition(.opacity)
     }
@@ -226,14 +215,25 @@ struct ReaderView: View {
         }
     }
 
-    /// 选中文字后的配色浮条，跟随选区位置。
+    /// 选中文字后的配色浮条，浮在选区**上方**。
+    ///
+    /// 贴着选区顶边往上放；上方放不下（选在页首）才翻到下方，
+    /// 始终让浮条盖在选中的文字附近，而不是压住下一行。
     @ViewBuilder
     private func highlightPaletteOverlay(session: ReaderSession) -> some View {
         if session.pendingHighlight != nil {
             GeometryReader { proxy in
+                // 与 HighlightPalette 的实际高度对齐（22pt 圆点 + 上下留白）。
+                let paletteHeight: CGFloat = 46
                 let rect = session.pendingHighlightRect
-                let x = min(max(rect?.midX ?? proxy.size.width / 2, 150), proxy.size.width - 150)
-                let y = min(max((rect?.maxY ?? proxy.size.height / 2) + 40, 80), proxy.size.height - 140)
+                let centerX = rect?.midX ?? proxy.size.width / 2
+                let x = min(max(centerX, 150), proxy.size.width - 150)
+                let y: CGFloat = {
+                    guard let rect else { return proxy.size.height / 2 }
+                    let above = rect.minY - paletteHeight / 2 - 8
+                    if above >= paletteHeight / 2 + 12 { return above }
+                    return rect.maxY + paletteHeight / 2 + 8
+                }()
 
                 Color.clear
                     .contentShape(.rect)
@@ -245,7 +245,10 @@ struct ReaderView: View {
                     },
                     onCancel: { session.cancelPendingHighlight() }
                 )
-                .position(x: x, y: y)
+                .position(
+                    x: x,
+                    y: min(max(y, paletteHeight / 2 + 8), proxy.size.height - paletteHeight / 2 - 8)
+                )
             }
             .ignoresSafeArea()
             .transition(.opacity)
