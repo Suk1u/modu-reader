@@ -1263,7 +1263,7 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
     private static let noteAnchorPrefix = "modu-note-"
 
     func navigator(
-        _ navigator: EPUBNavigatorViewController,
+        _ navigator: VisualNavigator,
         shouldNavigateToLink link: ReadiumShared.Link
     ) -> Bool {
         // 合并版的脚注：合并器把 href 改成了 #modu-note-<id>
@@ -1318,11 +1318,12 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
     /// 脚注点击。永远不跳转 —— 注释正文就在段落下方，
     /// 跳过去反而打断阅读。
     func navigator(
-        _ navigator: EPUBNavigatorViewController,
+        _ navigator: Navigator,
         shouldNavigateToNoteAt link: ReadiumShared.Link,
         content: String,
-        referrer: String
+        referrer: String?
     ) -> Bool {
+        // 注释直接读段落下方的正文，点「注」不跳转
         false
     }
 

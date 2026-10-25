@@ -344,7 +344,7 @@ struct TOCPanel: View {
                 item.underlined ? Color.primary : readableTextColor(on: rgb)
             )
             .background {
-                if !item.underlined, let rgb {
+                if !item.underlined {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(rgb.color)
                 }
@@ -353,8 +353,7 @@ struct TOCPanel: View {
     }
 
     /// 在高亮底色上挑一个对比度足够的文字色。
-    private func readableTextColor(on rgb: RGBColor?) -> Color {
-        guard let rgb else { return .primary }
+    private func readableTextColor(on rgb: RGBColor) -> Color {
         let luminance = 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue
         return luminance > 0.62 ? Color(white: 0.08) : Color(white: 0.99)
     }

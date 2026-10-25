@@ -51,7 +51,7 @@ targets:
         CFBundleDisplayName: 墨读
         CFBundleName: ModuReader
         CFBundleShortVersionString: "1.1.4"
-        CFBundleVersion: "27"
+        CFBundleVersion: "28"
         CFBundleDevelopmentRegion: zh_CN
         UILaunchScreen:
           UIColorName: LaunchBackground
