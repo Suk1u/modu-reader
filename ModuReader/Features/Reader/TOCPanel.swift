@@ -174,7 +174,8 @@ struct TOCPanel: View {
                         date: $0.createdAt,
                         progression: $0.progression,
                         locator: $0.locator,
-                        centerOnJump: false,
+                        // 跳过去把那一段滚到屏幕中央，别停在页首第一行
+                        centerOnJump: true,
                         swatchHex: $0.tintHex,
                         underlined: $0.underline
                     )

@@ -445,6 +445,7 @@ final class ReaderSession {
     func cancelPendingHighlight() {
         pendingHighlight = nil
         pendingHighlightRect = nil
+        engine.clearSelection()
     }
 
     /// 用选定样式保存挂起的高亮。
@@ -474,6 +475,8 @@ final class ReaderSession {
         Diagnostics.log(
             "高亮: 已保存「\(String(excerpt.prefix(18)))」颜色 \(tintHex ?? "默认") 下划线 \(underline)"
         )
+        // 保存完再撤掉选区，正文里留下的就是刚选好的高亮本身
+        engine.clearSelection()
         reloadHighlights()
     }
 

@@ -250,14 +250,18 @@ struct ReaderScrubber: View {
 
             ZStack(alignment: .trailing) {
                 if isActive || isDragging {
+                    // 填充画成矩形，再整体裁成轨道胶囊。
+                    // 用一根矮胶囊当填充时，圆角会随高度变，进度很小时
+                    // 顶端和轨道对不上 —— 就是「进度条与进度框不贴合」。
                     ZStack(alignment: .top) {
                         Capsule()
                             .fill(Color.primary.opacity(0.22))
-                        Capsule()
+                        Rectangle()
                             .fill(Color.primary.opacity(0.55))
-                            .frame(height: baseHeight * progress)
+                            .frame(height: max(0, baseHeight * progress))
                     }
                     .frame(width: normalWidth, height: baseHeight)
+                    .clipShape(Capsule())
                     .scaleEffect(scale)
                     .padding(.trailing, 12)
                     .offset(x: isDragging ? activeOffset : 0)

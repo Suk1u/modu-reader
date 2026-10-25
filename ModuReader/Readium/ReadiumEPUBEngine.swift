@@ -892,8 +892,14 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
     }
 
     private func beginHighlight(with selection: Selection) {
-        navigator?.clearSelection()
+        // 选区保留到落库为止 —— 配色浮条要先让读者看见正在标记哪一段。
+        // 清除由 ReaderSession 在保存之后统一做。
         onInteraction?(.highlight(convert(readiumLocator: selection.locator), selection.frame))
+    }
+
+    /// 清除正文的文字选中。
+    func clearSelection() {
+        navigator?.clearSelection()
     }
 
     func applyHighlights(_ marks: [HighlightMark]) {
@@ -982,18 +988,42 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
 
     /// 把指定落点滚到屏幕中央。
     ///
-    /// 合并版是单个资源，用「内容高度 × 进度」直接算出目标偏移，
-    /// 比自己相对 Readium 的落点再挪半屏可靠。
+    /// 合并版是单个资源：优先按 locator 的文本引用在 DOM 里精确定位，
+    /// 直接把那一段滚到屏幕中央。只按「进度 × 内容高度」估算的话，
+    /// 跳转后目标常常停在页首第一行，也就是读者反馈的症状。
     func centerCurrentPosition(at locator: Locator) {
         guard source == .merged else { return }
 
         Task { [weak self] in
-            try? await Task<Never, Never>.sleep(for: .milliseconds(320))
+            try? await Task<Never, Never>.sleep(for: .milliseconds(520))
             guard let self, let webView = Self.visibleWebView(in: self.view) else { return }
 
+            if let quote = locator.text, !quote.highlight.isEmpty {
+                let before = quote.before ?? ""
+                let after = quote.after ?? ""
+                if await Self.scrollToText(
+                    before: before,
+                    highlight: quote.highlight,
+                    after: after,
+                    in: webView
+                ) {
+                    // Readium 可能在位置回调里再校正一次滚动，稍后再对一次
+                    try? await Task<Never, Never>.sleep(for: .milliseconds(160))
+                    _ = await Self.scrollToText(
+                        before: before,
+                        highlight: quote.highlight,
+                        after: after,
+                        in: webView
+                    )
+                    return
+                }
+            }
+
+            // 文本定位失败（扫描版、被拆分的节点）：退回按进度估算。
+            // 合并版只有一个资源，资源内进度比全书进度更贴近滚动比例。
             let scroll = webView.scrollView
-            let progress = locator.locations.totalProgression
-                ?? locator.locations.progression
+            let progress = locator.locations.progression
+                ?? locator.locations.totalProgression
                 ?? 0
             let insetTop = scroll.adjustedContentInset.top
             let target = scroll.contentSize.height * min(max(progress, 0), 1)
@@ -1013,6 +1043,65 @@ final class ReadiumEPUBEngine: UIViewController, RenderEngine {
                 animated: true
             )
         }
+    }
+
+    /// 在合并版的整篇正文里找到文本引用，并把它滚到视口中央。
+    private static func scrollToText(
+        before: String,
+        highlight: String,
+        after: String,
+        in webView: WKWebView
+    ) async -> Bool {
+        func literal(_ value: String) -> String {
+            (try? JSONEncoder().encode(value))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        }
+
+        let script = """
+        (function(before, highlight, after){
+          var needle = before + highlight + after;
+          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+          var nodes = [], starts = [], text = "";
+          while (walker.nextNode()) {
+            var n = walker.currentNode;
+            if (!n.nodeValue) { continue; }
+            starts.push(text.length);
+            nodes.push(n);
+            text += n.nodeValue;
+          }
+          var idx = needle.length > highlight.length ? text.indexOf(needle) : -1;
+          var hStart = -1;
+          if (idx >= 0) {
+            hStart = idx + before.length;
+          } else {
+            idx = text.indexOf(highlight);
+            if (idx < 0) { return false; }
+            hStart = idx;
+          }
+          function nodeAt(pos) {
+            for (var i = nodes.length - 1; i >= 0; i--) {
+              if (starts[i] <= pos && pos <= starts[i] + nodes[i].nodeValue.length) {
+                return { node: nodes[i], offset: pos - starts[i] };
+              }
+            }
+            return null;
+          }
+          var a = nodeAt(hStart);
+          var b = nodeAt(hStart + highlight.length);
+          if (!a || !b) { return false; }
+          var range = document.createRange();
+          range.setStart(a.node, a.offset);
+          range.setEnd(b.node, b.offset);
+          var rect = range.getBoundingClientRect();
+          if (!rect || (!rect.width && !rect.height)) { return false; }
+          var target = window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2;
+          window.scrollTo(0, Math.max(0, target));
+          return true;
+        })(\(literal(before)), \(literal(highlight)), \(literal(after)))
+        """
+
+        let value = try? await webView.evaluateJavaScript(script)
+        return (value as? Bool) == true
     }
 
     // MARK: - 章节页码
@@ -1181,13 +1270,75 @@ extension ReadiumEPUBEngine: EPUBNavigatorDelegate {
         _ navigator: EPUBNavigatorViewController,
         shouldNavigateToLink link: ReadiumShared.Link
     ) -> Bool {
-        guard let anchor = Self.noteAnchorID(in: link.href) else { return true }
+        // 合并版的脚注：合并器把 href 改成了 #modu-note-<id>
+        if let anchor = Self.noteAnchorID(in: link.href) {
+            if settings.noteDisplayMode == .popover {
+                presentNote(forAnchor: anchor)
+            }
+            return false
+        }
 
-        // 无论哪种显示方式都不跳转；气泡模式再去取内容
-        if settings.noteDisplayMode == .popover {
-            presentNote(forAnchor: anchor)
+        // 原书的脚注：Readium 的 noteref 识别要求点击元素的 href 与
+        // 规范化后的目标 href 互为后缀。出版方的 ../ 路径或改写过的
+        // 锚点经常让这一步落空，链接就按普通跳转处理，气泡永远不出现。
+        // 气泡模式下自己对带片段的链接做一次判断：先拦截，异步取目标
+        // 内容；确实不是脚注再补一次正常跳转，不丢导航。
+        guard settings.noteDisplayMode == .popover,
+              let fragment = Self.fragmentID(in: link.href),
+              Self.mightBeNote(fragment: fragment, href: link.href)
+        else { return true }
+
+        Task { [weak self] in
+            guard let self else { return }
+            if let text = await self.noteText(for: link, fragment: fragment) {
+                self.presentNote(text: text, referrer: "", anchorID: fragment)
+            } else if let navigator = self.navigator {
+                _ = await navigator.go(to: link)
+            }
         }
         return false
+    }
+
+    /// 链接片段看起来像不像脚注。
+    private static func mightBeNote(fragment: String, href: String) -> Bool {
+        let id = fragment.lowercased()
+        let path = href.lowercased()
+        if path.contains("note") || path.contains("footnote") || path.contains("注释") {
+            return true
+        }
+        if id.hasPrefix("fn") || id.hasPrefix("nt") || id.hasPrefix("note")
+            || id.hasPrefix("footnote") || id.hasPrefix("endnote")
+            || id.hasPrefix("_ftn") || id.hasPrefix("注") {
+            return true
+        }
+        return id.range(of: #"^n[-_]?\d+$"#, options: .regularExpression) != nil
+    }
+
+    /// 从目标资源里取出片段元素的文字。取不到或不像脚注时返回 nil。
+    private func noteText(for link: ReadiumShared.Link, fragment: String) async -> String? {
+        guard let publication, let resource = publication.get(link) else { return nil }
+        guard case .success(let data) = await resource.read(),
+              let html = String(data: data, encoding: .utf8),
+              let block = Self.elementBlock(id: fragment, inHTML: html)
+        else { return nil }
+
+        let text = Self.plainText(fromHTML: block)
+        // 脚注是短注释；整段章节 / 目录锚点不当作脚注，交还给正常跳转
+        guard !text.isEmpty, text.count <= 1200 else { return nil }
+        return text
+    }
+
+    /// 按 id 取出元素的完整 HTML 片段。
+    private static func elementBlock(id: String, inHTML html: String) -> String? {
+        let escaped = NSRegularExpression.escapedPattern(for: id)
+        let pattern = "<([a-zA-Z][a-zA-Z0-9]*)\\b[^>]*\\bid\\s*=\\s*[\"']\(escaped)[\"'][^>]*>([\\s\\S]*?)</\\1>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let ns = html as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = regex.firstMatch(in: html, range: range) else { return nil }
+        return ns.substring(with: match.range)
     }
 
     private static func noteAnchorID(in href: String) -> String? {

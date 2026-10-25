@@ -125,6 +125,12 @@ protocol RenderEngine: AnyObject {
     /// 渲染已保存的高亮标记。
     func applyHighlights(_ marks: [HighlightMark])
 
+    /// 清除正文里的文字选中。
+    ///
+    /// 高亮浮条出现时选区要保留，读者才看得见正在标记哪一段；
+    /// 落库后再由调用方清掉。
+    func clearSelection()
+
     /// 把指定落点滚到屏幕垂直中央。跳转后调用。
     func centerCurrentPosition(at locator: Locator)
 
@@ -151,6 +157,7 @@ extension RenderEngine {
     var liveProgression: Double { totalProgression }
     func chapterIndex(atProgression progression: Double) -> Int? { nil }
     func applyHighlights(_ marks: [HighlightMark]) {}
+    func clearSelection() {}
     func centerCurrentPosition(at locator: Locator) {}
 }
 
